@@ -1,0 +1,2506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NEXUS — Global Monitoring System</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+/* ============================================================
+   NEXUS — Global Monitoring System  [CYBERPUNK EDITION]
+   Built on top of v1. Same DOM + JS, reskinned with a neon
+   HUD aesthetic: scanlines, perspective grid, glitch title,
+   clip-path panels, animated borders, full monospace.
+   ============================================================ */
+
+/* ---------- Design tokens ---------- */
+:root {
+  /* Base surfaces */
+  --bg-void:        #02030a;
+  --bg-deep:        #050810;
+  --bg-panel:       rgba(6, 12, 24, 0.78);
+  --bg-panel-hover: rgba(10, 18, 36, 0.88);
+  --bg-inset:       rgba(0, 240, 255, 0.03);
+
+  /* Neon accents */
+  --neon-cyan:      #00f0ff;
+  --neon-magenta:   #ff0080;
+  --neon-violet:    #bd00ff;
+  --neon-amber:     #ffb800;
+  --neon-red:       #ff003c;
+  --neon-green:     #00ff9f;
+  --neon-blue:      #0080ff;
+
+  /* Text */
+  --text-primary:   #d4f1ff;
+  --text-secondary: #6a8aa8;
+  --text-muted:     #3d5a7a;
+
+  /* Borders */
+  --border-dim:     rgba(0, 240, 255, 0.10);
+  --border-mid:     rgba(0, 240, 255, 0.25);
+  --border-bright:  rgba(0, 240, 255, 0.50);
+  --border-glow:    rgba(0, 240, 255, 0.80);
+
+  /* Shadows / glows */
+  --shadow-deep:    0 8px 32px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(0, 240, 255, 0.04);
+  --glow-cyan:      0 0 20px rgba(0, 240, 255, 0.22), 0 0 40px rgba(0, 240, 255, 0.06);
+  --glow-magenta:   0 0 20px rgba(255, 0, 128, 0.22);
+
+  /* Legacy aliases — kept so inline JS SVG/Canvas keep working */
+  --accent-cyan:    #00f0ff;
+  --accent-violet:  #bd00ff;
+  --accent-amber:   #ffb800;
+  --accent-red:     #ff003c;
+  --accent-green:   #00ff9f;
+  --accent-blue:    #0080ff;
+
+  /* Typography — full monospace for cyberpunk feel */
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', 'Share Tech Mono', Menlo, Consolas, ui-monospace, monospace;
+  --font-sans: var(--font-mono);
+  --radius: 2px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: var(--bg-void);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+body {
+  background:
+    radial-gradient(ellipse 80% 50% at 15% 0%, rgba(0, 240, 255, 0.07), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 85% 5%, rgba(189, 0, 255, 0.06), transparent 60%),
+    radial-gradient(ellipse 100% 60% at 50% 100%, rgba(255, 0, 128, 0.04), transparent 60%),
+    linear-gradient(180deg, var(--bg-deep) 0%, var(--bg-void) 100%);
+  background-attachment: fixed;
+  padding: 24px 28px 80px;
+  position: relative;
+}
+
+/* ---------- Atmospheric layer 1: perspective grid ---------- */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(0, 240, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 240, 255, 0.045) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-position: -1px -1px;
+  -webkit-mask-image: radial-gradient(ellipse 100% 70% at 50% 0%, black 0%, transparent 75%);
+  mask-image: radial-gradient(ellipse 100% 70% at 50% 0%, black 0%, transparent 75%);
+  animation: gridDrift 40s linear infinite;
+}
+
+@keyframes gridDrift {
+  from { background-position: -1px -1px; }
+  to   { background-position: -1px -49px; }
+}
+
+/* ---------- Atmospheric layer 0: Three.js globe + starfield ---------- */
+#globe-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0.55;
+}
+@media (prefers-reduced-motion: reduce) {
+  #globe-bg { display: none; }
+}
+
+/* ---------- Atmospheric layer 2: scanlines ---------- */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 240, 255, 0.018) 2px,
+    rgba(0, 240, 255, 0.018) 3px
+  );
+  mix-blend-mode: overlay;
+}
+
+/* Content sits above atmospheric layers */
+header, main, footer { position: relative; z-index: 1; }
+
+/* ===========================================================
+   HEADER
+   =========================================================== */
+.nexus-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 22px 28px;
+  margin-bottom: 28px;
+  background: var(--bg-panel);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-deep), var(--glow-cyan);
+  position: relative;
+  overflow: hidden;
+  clip-path: polygon(
+    0 0, calc(100% - 18px) 0, 100% 18px,
+    100% 100%, 18px 100%, 0 calc(100% - 18px)
+  );
+}
+
+/* Top neon accent line */
+.nexus-header::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    var(--neon-cyan) 20%,
+    var(--neon-violet) 50%,
+    var(--neon-magenta) 80%,
+    transparent 100%);
+  box-shadow: 0 0 12px var(--neon-cyan), 0 0 24px rgba(0, 240, 255, 0.3);
+}
+
+/* Animated scan sweep across header */
+.nexus-header::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -50%;
+  width: 50%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.04), transparent);
+  animation: headerSweep 8s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes headerSweep {
+  0%   { left: -50%; }
+  100% { left: 100%; }
+}
+
+.brand { position: relative; }
+
+/* Glitch NEXUS title — 3 layers with RGB split */
+.brand h1 {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  color: var(--text-primary);
+  text-shadow:
+    0 0 10px var(--neon-cyan),
+    0 0 24px rgba(0, 240, 255, 0.5),
+    0 0 48px rgba(0, 240, 255, 0.25);
+  line-height: 1;
+  position: relative;
+  font-family: var(--font-mono);
+}
+
+/* Glitch copies */
+.brand h1::before,
+.brand h1::after {
+  content: 'NEXUS';
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+.brand h1::before {
+  color: var(--neon-magenta);
+  z-index: -1;
+  animation: glitchA 4s infinite steps(1);
+  text-shadow: 0 0 6px var(--neon-magenta);
+}
+
+.brand h1::after {
+  color: var(--neon-cyan);
+  z-index: -2;
+  animation: glitchB 4s infinite steps(1);
+  text-shadow: 0 0 6px var(--neon-cyan);
+}
+
+@keyframes glitchA {
+  0%, 92%, 100% { transform: translate(0, 0); clip-path: inset(0 0 0 0); }
+  93% { transform: translate(-2px, 1px); clip-path: inset(20% 0 60% 0); }
+  95% { transform: translate(2px, -1px); clip-path: inset(60% 0 10% 0); }
+  97% { transform: translate(-1px, 0); clip-path: inset(40% 0 40% 0); }
+}
+
+@keyframes glitchB {
+  0%, 92%, 100% { transform: translate(0, 0); clip-path: inset(0 0 0 0); }
+  93% { transform: translate(2px, -1px); clip-path: inset(10% 0 70% 0); }
+  95% { transform: translate(-2px, 1px); clip-path: inset(70% 0 5% 0); }
+  97% { transform: translate(1px, 0); clip-path: inset(30% 0 50% 0); }
+}
+
+.brand .subtitle {
+  color: var(--text-secondary);
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-top: 8px;
+  font-family: var(--font-mono);
+}
+
+.brand .subtitle::before {
+  content: '> ';
+  color: var(--neon-cyan);
+}
+
+.status-bar {
+  display: flex;
+  gap: 26px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.status-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 4px 12px;
+  border-left: 1px solid var(--border-dim);
+}
+
+.status-item:first-child { border-left: none; }
+
+.status-label {
+  font-size: 9px;
+  letter-spacing: 2.5px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+}
+
+.status-value {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-primary);
+  letter-spacing: 1.5px;
+  text-shadow: 0 0 6px currentColor;
+}
+
+.status-ok { color: var(--neon-green); }
+.status-warn { color: var(--neon-amber); }
+
+/* Hexagonal pulse dot */
+.pulse-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: var(--neon-green);
+  margin-right: 8px;
+  position: relative;
+  top: -1px;
+  box-shadow: 0 0 8px var(--neon-green), 0 0 16px rgba(0, 255, 159, 0.4);
+  animation: hexPulse 2s ease-in-out infinite;
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+}
+
+@keyframes hexPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 8px var(--neon-green), 0 0 16px rgba(0, 255, 159, 0.4); }
+  50% { opacity: 0.4; box-shadow: 0 0 4px var(--neon-green), 0 0 8px rgba(0, 255, 159, 0.2); }
+}
+
+/* ===========================================================
+   CATEGORIES
+   =========================================================== */
+.category { margin-bottom: 28px; }
+
+.category-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  margin-bottom: 14px;
+  padding: 6px 14px 6px 18px;
+  border-left: 3px solid var(--neon-cyan);
+  background: linear-gradient(90deg, rgba(0, 240, 255, 0.08), transparent 60%);
+  position: relative;
+  font-family: var(--font-mono);
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
+}
+
+.category-title::before {
+  content: '▸ ';
+  color: var(--neon-cyan);
+}
+
+.category-title::after {
+  content: '';
+  position: absolute;
+  left: 0; bottom: -1px;
+  width: 30%;
+  height: 1px;
+  background: linear-gradient(90deg, var(--neon-cyan), transparent);
+}
+
+.category:nth-of-type(2) .category-title { border-left-color: var(--neon-violet); background: linear-gradient(90deg, rgba(189, 0, 255, 0.08), transparent 60%); text-shadow: 0 0 8px rgba(189, 0, 255, 0.4); }
+.category:nth-of-type(2) .category-title::before { color: var(--neon-violet); }
+.category:nth-of-type(2) .category-title::after { background: linear-gradient(90deg, var(--neon-violet), transparent); }
+
+.category:nth-of-type(3) .category-title { border-left-color: var(--neon-blue); background: linear-gradient(90deg, rgba(0, 128, 255, 0.08), transparent 60%); text-shadow: 0 0 8px rgba(0, 128, 255, 0.4); }
+.category:nth-of-type(3) .category-title::before { color: var(--neon-blue); }
+.category:nth-of-type(3) .category-title::after { background: linear-gradient(90deg, var(--neon-blue), transparent); }
+
+.category:nth-of-type(4) .category-title { border-left-color: var(--neon-amber); background: linear-gradient(90deg, rgba(255, 184, 0, 0.08), transparent 60%); text-shadow: 0 0 8px rgba(255, 184, 0, 0.4); }
+.category:nth-of-type(4) .category-title::before { color: var(--neon-amber); }
+.category:nth-of-type(4) .category-title::after { background: linear-gradient(90deg, var(--neon-amber), transparent); }
+
+.category:nth-of-type(5) .category-title { border-left-color: var(--neon-magenta); background: linear-gradient(90deg, rgba(255, 0, 128, 0.08), transparent 60%); text-shadow: 0 0 8px rgba(255, 0, 128, 0.4); }
+.category:nth-of-type(5) .category-title::before { color: var(--neon-magenta); }
+.category:nth-of-type(5) .category-title::after { background: linear-gradient(90deg, var(--neon-magenta), transparent); }
+
+/* ===========================================================
+   FEATURED ROW
+   =========================================================== */
+.featured {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr;
+  gap: 18px;
+  margin-bottom: 28px;
+}
+@media (max-width: 1200px){
+  .featured { grid-template-columns: 1fr 1fr; }
+  .panel-map { grid-column: span 2; }
+}
+
+/* ===========================================================
+   TACTICAL MAP — holographic, radar-free (hard requirement:
+   no circular sweeps, rotating arcs, scanning beams, concentric
+   rings, radar grids, or pulsing rings)
+   =========================================================== */
+.panel-map { min-height: 340px; padding: 16px 18px 12px; }
+.map-frame {
+  position: relative;
+  flex: 1;
+  margin-top: 8px;
+  border: 1px solid var(--border-dim);
+  background: #0a1420;
+  overflow: hidden;
+  min-height: 260px;
+}
+.map-frame #tactical-map { width: 100%; height: 100%; min-height: 260px; background: #0a1420; }
+.map-frame .leaflet-tile-pane { filter: saturate(0.7) brightness(1.35) contrast(1.05); opacity: 0.9; }
+.map-legend {
+  display: flex; gap: 14px; flex-wrap: wrap;
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-secondary);
+  letter-spacing: 0.5px; margin-top: 8px;
+}
+.map-legend span { display: flex; align-items: center; gap: 5px; }
+.map-legend .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.map-hud { position: absolute; inset: 0; pointer-events: none; z-index: 500; }
+.map-hud .corner { position: absolute; width: 20px; height: 20px; border-color: var(--neon-cyan); opacity: 0.6; }
+.map-hud .corner.tl { top: 8px; left: 8px; border-top: 1px solid; border-left: 1px solid; }
+.map-hud .corner.tr { top: 8px; right: 8px; border-top: 1px solid; border-right: 1px solid; }
+.map-hud .corner.bl { bottom: 8px; left: 8px; border-bottom: 1px solid; border-left: 1px solid; }
+.map-hud .corner.br { bottom: 8px; right: 8px; border-bottom: 1px solid; border-right: 1px solid; }
+.map-readout {
+  position: absolute; bottom: 8px; left: 8px; z-index: 500;
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--neon-cyan);
+  background: rgba(2,3,10,0.7); padding: 4px 8px; border: 1px solid var(--border-mid);
+  letter-spacing: 1px;
+}
+.leaflet-popup-content-wrapper { background: var(--bg-deep); color: var(--text-primary); border: 1px solid var(--border-mid); border-radius: 0; font-family: var(--font-mono); font-size: 11px; }
+.leaflet-popup-tip { background: var(--bg-deep); }
+.leaflet-container a.leaflet-popup-close-button { color: var(--text-secondary); }
+.leaflet-control-zoom { border: 1px solid var(--border-mid) !important; box-shadow: none !important; }
+.leaflet-control-zoom a {
+  background: var(--bg-deep) !important; color: var(--neon-cyan) !important;
+  border-color: var(--border-mid) !important; font-family: var(--font-mono) !important;
+}
+.leaflet-control-zoom a:hover { background: rgba(0,240,255,0.1) !important; }
+.leaflet-control-attribution { display: none; }
+.quake-marker { filter: drop-shadow(0 0 4px currentColor); }
+/* explicit safeguard — radar-style visuals are never permitted on this map */
+.radar-sweep, .radar-circle, .radar-grid, .pulse-ring, .arc-sweep { display: none !important; }
+
+/* ===========================================================
+   GRID
+   =========================================================== */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 18px;
+}
+
+/* ===========================================================
+   PANEL — cyberpunk card with clip-path corners + HUD marks
+   =========================================================== */
+.panel {
+  background: var(--bg-panel);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-deep);
+  padding: 16px 18px 14px;
+  display: flex;
+  flex-direction: column;
+  min-height: 220px;
+  position: relative;
+  transition: border-color 0.3s ease, transform 0.2s ease, box-shadow 0.3s ease, background 0.3s ease;
+  /* Clip angled top-right + bottom-left corners */
+  clip-path: polygon(
+    0 0,
+    calc(100% - 14px) 0,
+    100% 14px,
+    100% 100%,
+    14px 100%,
+    0 calc(100% - 14px)
+  );
+}
+
+.panel:hover {
+  border-color: var(--border-bright);
+  background: var(--bg-panel-hover);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-deep), 0 0 28px rgba(0, 240, 255, 0.18);
+}
+
+.panel-large { min-height: 270px; }
+
+/* HUD corner brackets — top-right */
+.panel::before {
+  content: '';
+  position: absolute;
+  top: 0; right: 0;
+  width: 14px; height: 14px;
+  border-top: 2px solid var(--neon-cyan);
+  border-right: 2px solid var(--neon-cyan);
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+/* HUD corner brackets — bottom-left */
+.panel::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0;
+  width: 14px; height: 14px;
+  border-bottom: 2px solid var(--neon-cyan);
+  border-left: 2px solid var(--neon-cyan);
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+  text-shadow: 0 0 6px rgba(0, 240, 255, 0.3);
+  position: relative;
+  padding-left: 12px;
+}
+
+.panel-title::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 4px; height: 12px;
+  background: var(--neon-cyan);
+  box-shadow: 0 0 6px var(--neon-cyan);
+}
+
+/* Diamond status indicators */
+.panel-status {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  transform: rotate(45deg);
+  border: 1px solid currentColor;
+}
+
+.panel-status.status-ok {
+  background: var(--neon-green);
+  color: var(--neon-green);
+  box-shadow: 0 0 8px var(--neon-green), inset 0 0 4px rgba(0, 0, 0, 0.4);
+  animation: diamondPulse 2s ease-in-out infinite;
+}
+
+.panel-status.status-loading {
+  background: var(--neon-amber);
+  color: var(--neon-amber);
+  box-shadow: 0 0 8px var(--neon-amber);
+  animation: diamondPulse 0.8s ease-in-out infinite;
+}
+
+.panel-status.status-error {
+  background: var(--neon-red);
+  color: var(--neon-red);
+  box-shadow: 0 0 8px var(--neon-red), inset 0 0 4px rgba(0, 0, 0, 0.4);
+  animation: errorBlink 1s steps(2) infinite;
+}
+
+@keyframes diamondPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@keyframes errorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+
+.panel-meta {
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  font-family: var(--font-mono);
+  padding-left: 12px;
+}
+
+.panel-meta::before {
+  content: '◆ ';
+  color: var(--neon-cyan);
+  opacity: 0.6;
+}
+
+.panel-body {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ===========================================================
+   DATA TABLES — cyan grid, monospace, neon values
+   =========================================================== */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.data-table th {
+  text-align: left;
+  color: var(--neon-cyan);
+  font-weight: 500;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  padding: 4px 8px 6px 0;
+  border-bottom: 1px solid var(--border-mid);
+  text-shadow: 0 0 4px rgba(0, 240, 255, 0.3);
+}
+
+.data-table td {
+  padding: 6px 8px 6px 0;
+  color: var(--text-secondary);
+  border-bottom: 1px solid rgba(0, 240, 255, 0.05);
+  vertical-align: top;
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-table tr:last-child td { border-bottom: none; }
+
+.data-table tr:hover td {
+  background: rgba(0, 240, 255, 0.03);
+  color: var(--text-primary);
+}
+
+.data-table td.wrap {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.mono { font-family: var(--font-mono); }
+
+/* Neon value classes */
+.value-high { color: var(--neon-red); font-weight: 600; text-shadow: 0 0 6px rgba(255, 0, 60, 0.5); }
+.value-mid  { color: var(--neon-amber); font-weight: 600; text-shadow: 0 0 6px rgba(255, 184, 0, 0.5); }
+.value-low  { color: var(--neon-green); text-shadow: 0 0 4px rgba(0, 255, 159, 0.4); }
+.value-info { color: var(--neon-cyan); text-shadow: 0 0 6px rgba(0, 240, 255, 0.5); }
+.value-violet { color: var(--neon-violet); text-shadow: 0 0 6px rgba(189, 0, 255, 0.5); }
+
+/* ===========================================================
+   METRICS — inset panels with neon values
+   =========================================================== */
+.metric-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.metric {
+  flex: 1;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  position: relative;
+  overflow: hidden;
+}
+
+.metric::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+  opacity: 0.4;
+}
+
+.metric-value {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--neon-cyan);
+  line-height: 1.1;
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.5), 0 0 16px rgba(0, 240, 255, 0.2);
+}
+
+.metric-value.violet { color: var(--neon-violet); text-shadow: 0 0 8px rgba(189, 0, 255, 0.5); }
+.metric-value.amber  { color: var(--neon-amber);  text-shadow: 0 0 8px rgba(255, 184, 0, 0.5); }
+.metric-value.green  { color: var(--neon-green);  text-shadow: 0 0 8px rgba(0, 255, 159, 0.5); }
+.metric-value.red    { color: var(--neon-red);    text-shadow: 0 0 8px rgba(255, 0, 60, 0.5); }
+
+.metric-label {
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-top: 3px;
+  font-family: var(--font-mono);
+}
+
+/* ===========================================================
+   LOADING & ERROR — hex spinner, neon error
+   =========================================================== */
+.loading, .error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 120px;
+  text-align: center;
+  color: var(--text-muted);
+  gap: 10px;
+}
+
+.loading .spinner {
+  width: 26px;
+  height: 26px;
+  border: 2px solid transparent;
+  border-top-color: var(--neon-cyan);
+  border-right-color: var(--neon-cyan);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.4);
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.error-state .error-icon {
+  font-size: 24px;
+  color: var(--neon-red);
+  text-shadow: 0 0 8px var(--neon-red);
+  opacity: 0.9;
+}
+
+.error-state .error-text {
+  font-size: 12px;
+  color: var(--neon-red);
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-shadow: 0 0 6px rgba(255, 0, 60, 0.4);
+}
+
+.error-state .error-detail {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  max-width: 260px;
+  word-break: break-word;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 0, 60, 0.2);
+  background: rgba(255, 0, 60, 0.04);
+}
+
+/* ===========================================================
+   RISK GAUGE
+   =========================================================== */
+.risk-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.gauge-wrap {
+  position: relative;
+  width: 180px;
+  height: 110px;
+  margin: 4px auto 6px;
+}
+
+.gauge-wrap canvas { width: 100%; height: 100%; }
+
+.gauge-readout {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  text-align: center;
+}
+
+.gauge-score {
+  font-family: var(--font-mono);
+  font-size: 38px;
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 0 12px currentColor, 0 0 24px rgba(0, 240, 255, 0.3);
+}
+
+.gauge-label {
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-top: 3px;
+  font-family: var(--font-mono);
+}
+
+.risk-factors {
+  width: 100%;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.risk-factors div {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(0, 240, 255, 0.05);
+  display: flex;
+  justify-content: space-between;
+  letter-spacing: 0.5px;
+}
+
+.risk-factors div:last-child { border-bottom: none; }
+
+.risk-factors div::before {
+  content: '› ';
+  color: var(--neon-cyan);
+  opacity: 0.5;
+}
+
+/* ===========================================================
+   REGIONAL STABILITY BARS
+   =========================================================== */
+.region-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.region-bar {
+  display: grid;
+  grid-template-columns: 80px 1fr 50px;
+  align-items: center;
+  gap: 10px;
+}
+
+.region-name {
+  font-size: 12px;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+
+.region-name::before {
+  content: '▸ ';
+  color: var(--neon-cyan);
+  opacity: 0.6;
+}
+
+.bar-track {
+  height: 12px;
+  background: rgba(0, 240, 255, 0.04);
+  border: 1px solid var(--border-dim);
+  border-radius: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Gridlines inside the bar */
+.bar-track::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(90deg, transparent 0, transparent calc(20% - 1px), rgba(0, 240, 255, 0.12) calc(20% - 1px), rgba(0, 240, 255, 0.12) 20%);
+  background-size: 20% 100%;
+  pointer-events: none;
+}
+
+.bar-fill {
+  height: 100%;
+  transition: width 0.6s ease;
+  position: relative;
+}
+
+.bar-fill::after {
+  content: '';
+  position: absolute;
+  top: 0; right: 0;
+  width: 2px; height: 100%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.bar-fill.green {
+  background: linear-gradient(90deg, rgba(0, 255, 159, 0.3), var(--neon-green));
+  color: var(--neon-green);
+  box-shadow: 0 0 8px rgba(0, 255, 159, 0.3);
+}
+
+.bar-fill.amber {
+  background: linear-gradient(90deg, rgba(255, 184, 0, 0.3), var(--neon-amber));
+  color: var(--neon-amber);
+  box-shadow: 0 0 8px rgba(255, 184, 0, 0.3);
+}
+
+.bar-fill.red {
+  background: linear-gradient(90deg, rgba(255, 0, 60, 0.3), var(--neon-red));
+  color: var(--neon-red);
+  box-shadow: 0 0 8px rgba(255, 0, 60, 0.3);
+}
+
+.region-score {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  text-align: right;
+  text-shadow: 0 0 6px currentColor;
+}
+
+.region-events {
+  grid-column: 1 / -1;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  padding-left: 90px;
+  margin-top: -6px;
+  letter-spacing: 0.5px;
+}
+
+.region-events::before {
+  content: '└ ';
+  color: var(--neon-cyan);
+  opacity: 0.4;
+}
+
+/* ===========================================================
+   LISTS & TAGS
+   =========================================================== */
+.item-list {
+  list-style: none;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.item-list li {
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(0, 240, 255, 0.05);
+  color: var(--text-secondary);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.item-list li:last-child { border-bottom: none; }
+
+.item-list li::before {
+  content: '› ';
+  color: var(--neon-cyan);
+  opacity: 0.6;
+}
+
+.tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 0;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  border: 1px solid currentColor;
+  position: relative;
+}
+
+.tag-extreme  { background: rgba(255, 0, 60, 0.15);  color: var(--neon-red);     text-shadow: 0 0 4px rgba(255, 0, 60, 0.5); }
+.tag-severe   { background: rgba(255, 184, 0, 0.15); color: var(--neon-amber);   text-shadow: 0 0 4px rgba(255, 184, 0, 0.5); }
+.tag-moderate { background: rgba(0, 128, 255, 0.15); color: var(--neon-blue);    text-shadow: 0 0 4px rgba(0, 128, 255, 0.5); }
+.tag-minor    { background: rgba(0, 255, 159, 0.15); color: var(--neon-green);   text-shadow: 0 0 4px rgba(0, 255, 159, 0.5); }
+.tag-info     { background: rgba(0, 240, 255, 0.12); color: var(--neon-cyan);    text-shadow: 0 0 4px rgba(0, 240, 255, 0.5); }
+
+/* ===========================================================
+   KV GRID — inset data cells
+   =========================================================== */
+.kv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.kv-grid .kv {
+  background: var(--bg-inset);
+  padding: 7px 10px;
+  border-radius: 0;
+  border: 1px solid var(--border-dim);
+  position: relative;
+}
+
+.kv-grid .kv::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 6px; height: 1px;
+  background: var(--neon-cyan);
+}
+
+.kv .k {
+  color: var(--text-muted);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+}
+
+.kv .v {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-primary);
+  margin-top: 2px;
+}
+
+/* ===========================================================
+   OFFLINE STATE — distinct from error state
+   =========================================================== */
+.offline-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 120px;
+  text-align: center;
+  color: var(--text-muted);
+  gap: 6px;
+  padding: 10px;
+  position: relative;
+}
+
+.offline-state::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent 0,
+    transparent 8px,
+    rgba(255, 0, 128, 0.025) 8px,
+    rgba(255, 0, 128, 0.025) 16px
+  );
+  pointer-events: none;
+}
+
+.offline-icon {
+  font-size: 26px;
+  color: var(--neon-magenta);
+  text-shadow: 0 0 10px var(--neon-magenta), 0 0 20px rgba(255, 0, 128, 0.4);
+  opacity: 0.85;
+  animation: diamondPulse 2.5s ease-in-out infinite;
+}
+
+.offline-text {
+  font-size: 13px;
+  color: var(--neon-magenta);
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  text-shadow: 0 0 6px rgba(255, 0, 128, 0.5);
+}
+
+.offline-sub {
+  font-size: 10px;
+  color: var(--text-secondary);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+}
+
+.offline-detail {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  max-width: 240px;
+  word-break: break-word;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 0, 128, 0.18);
+  background: rgba(255, 0, 128, 0.04);
+  margin-top: 4px;
+}
+
+/* When a panel is hidden by the live-only filter */
+.panel.panel-hidden {
+  display: none !important;
+}
+
+/* ===========================================================
+   TOGGLE BUTTON — SHOW ALL / LIVE ONLY
+   =========================================================== */
+.toggle-btn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--neon-cyan);
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  padding: 7px 14px;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+  clip-path: polygon(
+    0 0,
+    calc(100% - 8px) 0,
+    100% 8px,
+    100% 100%,
+    8px 100%,
+    0 calc(100% - 8px)
+  );
+  text-shadow: 0 0 4px rgba(0, 240, 255, 0.4);
+}
+
+.toggle-btn:hover {
+  border-color: var(--neon-cyan);
+  color: var(--text-primary);
+  background: rgba(0, 240, 255, 0.06);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.25);
+}
+
+.toggle-btn.active {
+  color: var(--neon-green);
+  border-color: var(--neon-green);
+  text-shadow: 0 0 6px rgba(0, 255, 159, 0.6);
+  background: rgba(0, 255, 159, 0.06);
+}
+
+.toggle-btn.active:hover {
+  box-shadow: 0 0 12px rgba(0, 255, 159, 0.3);
+}
+
+/* ===========================================================
+   FOOTER
+   =========================================================== */
+.nexus-footer {
+  margin-top: 36px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 10px;
+  letter-spacing: 2px;
+  font-family: var(--font-mono);
+  padding: 14px;
+  border-top: 1px solid var(--border-dim);
+  position: relative;
+}
+
+.nexus-footer::before {
+  content: '';
+  position: absolute;
+  top: -1px; left: 30%; right: 30%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+  box-shadow: 0 0 6px var(--neon-cyan);
+}
+
+.nexus-footer::after {
+  content: ' [ EOF ]';
+  color: var(--neon-cyan);
+  opacity: 0.5;
+}
+
+/* ===========================================================
+   RESPONSIVE
+   =========================================================== */
+@media (max-width: 980px) {
+  .featured { grid-template-columns: 1fr; }
+  body { padding: 16px; }
+  .brand h1 { font-size: 24px; letter-spacing: 5px; }
+  .status-bar { gap: 16px; }
+}
+
+@media (max-width: 600px) {
+  .grid { grid-template-columns: 1fr; }
+  .status-item { padding: 4px 8px; }
+  .nexus-header { padding: 16px; }
+}
+
+/* ===========================================================
+   SCROLLBAR
+   =========================================================== */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: rgba(0, 240, 255, 0.02); }
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 240, 255, 0.2);
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 240, 255, 0.4); box-shadow: 0 0 6px var(--neon-cyan); }
+
+/* ===========================================================
+   SELECTION
+   =========================================================== */
+::selection {
+  background: rgba(0, 240, 255, 0.25);
+  color: var(--text-primary);
+  text-shadow: 0 0 8px var(--neon-cyan);
+}
+
+  </style>
+</head>
+<body>
+
+<canvas id="globe-bg"></canvas>
+
+<!-- ============== HEADER ============== -->
+<header class="nexus-header">
+  <div class="brand">
+    <h1>NEXUS</h1>
+    <p class="subtitle">Global Monitoring System · Keyless · Browser-Native</p>
+  </div>
+  <div class="status-bar">
+    <div class="status-item">
+      <span class="status-label">System</span>
+      <span class="status-value status-ok"><span class="pulse-dot"></span>ONLINE</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">UTC</span>
+      <span class="status-value" id="global-clock">--:--:--</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">Next Refresh</span>
+      <span class="status-value status-warn" id="next-refresh">60s</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">Cycle</span>
+      <span class="status-value" id="cycle-count">#1</span>
+    </div>
+    <button class="toggle-btn" id="toggle-live" type="button" title="Hide panels that have no browser-safe endpoint">○ SHOW ALL</button>
+  </div>
+</header>
+
+<main>
+  <!-- ============== FEATURED: DERIVED METRICS + TACTICAL MAP ============== -->
+  <section class="featured">
+    <div class="panel panel-large panel-map" id="panel-map">
+      <div class="panel-header">
+        <h3 class="panel-title">Tactical Overview</h3>
+        <span class="panel-status status-ok" id="map-status"></span>
+      </div>
+      <div class="map-frame">
+        <div id="tactical-map"></div>
+        <div class="map-hud">
+          <div class="corner tl"></div><div class="corner tr"></div>
+          <div class="corner bl"></div><div class="corner br"></div>
+        </div>
+        <div class="map-readout" id="map-readout">TRACKING 0 OBJECTS</div>
+      </div>
+      <div class="map-legend">
+        <span><span class="dot" style="background:var(--neon-red);"></span>M5+ QUAKE</span>
+        <span><span class="dot" style="background:var(--neon-amber);"></span>M4-5 QUAKE</span>
+        <span><span class="dot" style="background:var(--neon-cyan);"></span>M&lt;4 / ISS</span>
+      </div>
+    </div>
+
+    <div class="panel panel-large" id="panel-risk">
+      <div class="panel-header">
+        <h3 class="panel-title">Global Risk Index</h3>
+        <span class="panel-status status-loading" id="risk-status"></span>
+      </div>
+      <div class="panel-meta" id="risk-updated">Awaiting telemetry…</div>
+      <div class="panel-body" id="risk-body">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <div class="panel panel-large" id="panel-regional">
+      <div class="panel-header">
+        <h3 class="panel-title">Regional Stability Score</h3>
+        <span class="panel-status status-loading" id="regional-status"></span>
+      </div>
+      <div class="panel-meta" id="regional-updated">Awaiting telemetry…</div>
+      <div class="panel-body" id="regional-body">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== PLANETARY & ENVIRONMENTAL ============== -->
+  <section class="category">
+    <h2 class="category-title">Planetary &amp; Environmental</h2>
+    <div class="grid">
+      <div class="panel" id="panel-earthquakes">
+        <div class="panel-header">
+          <h3 class="panel-title">Earthquakes — USGS</h3>
+          <span class="panel-status status-loading" id="earthquakes-status"></span>
+        </div>
+        <div class="panel-meta" id="earthquakes-updated">Awaiting data…</div>
+        <div class="panel-body" id="earthquakes-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="panel" id="panel-wildfires">
+        <div class="panel-header">
+          <h3 class="panel-title">Wildfires — NASA FIRMS</h3>
+          <span class="panel-status status-loading" id="wildfires-status"></span>
+        </div>
+        <div class="panel-meta" id="wildfires-updated">Awaiting data…</div>
+        <div class="panel-body" id="wildfires-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="panel" id="panel-storms">
+        <div class="panel-header">
+          <h3 class="panel-title">Storms &amp; Cyclones — NOAA NHC</h3>
+          <span class="panel-status status-loading" id="storms-status"></span>
+        </div>
+        <div class="panel-meta" id="storms-updated">Awaiting data…</div>
+        <div class="panel-body" id="storms-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="panel" id="panel-floods">
+        <div class="panel-header">
+          <h3 class="panel-title">Floods &amp; Drought — GDACS</h3>
+          <span class="panel-status status-loading" id="floods-status"></span>
+        </div>
+        <div class="panel-meta" id="floods-updated">Awaiting data…</div>
+        <div class="panel-body" id="floods-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== SPACE & ORBITAL ============== -->
+  <section class="category">
+    <h2 class="category-title">Space &amp; Orbital</h2>
+    <div class="grid">
+      <div class="panel" id="panel-iss">
+        <div class="panel-header">
+          <h3 class="panel-title">ISS Position — Open ISS</h3>
+          <span class="panel-status status-loading" id="iss-status"></span>
+        </div>
+        <div class="panel-meta" id="iss-updated">Awaiting data…</div>
+        <div class="panel-body" id="iss-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="panel" id="panel-satellites">
+        <div class="panel-header">
+          <h3 class="panel-title">Satellite Orbits — CelesTrak</h3>
+          <span class="panel-status status-loading" id="satellites-status"></span>
+        </div>
+        <div class="panel-meta" id="satellites-updated">Awaiting data…</div>
+        <div class="panel-body" id="satellites-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="panel" id="panel-spaceweather">
+        <div class="panel-header">
+          <h3 class="panel-title">Space Weather — NOAA SWPC</h3>
+          <span class="panel-status status-loading" id="spaceweather-status"></span>
+        </div>
+        <div class="panel-meta" id="spaceweather-updated">Awaiting data…</div>
+        <div class="panel-body" id="spaceweather-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="panel" id="panel-aurora">
+        <div class="panel-header">
+          <h3 class="panel-title">Aurora Forecast — NOAA OVATION</h3>
+          <span class="panel-status status-loading" id="aurora-status"></span>
+        </div>
+        <div class="panel-meta" id="aurora-updated">Awaiting data…</div>
+        <div class="panel-body" id="aurora-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== AVIATION ============== -->
+  <section class="category">
+    <h2 class="category-title">Aviation</h2>
+    <div class="grid">
+      <div class="panel" id="panel-aircraft">
+        <div class="panel-header">
+          <h3 class="panel-title">Aircraft Density — OpenSky Network</h3>
+          <span class="panel-status status-loading" id="aircraft-status"></span>
+        </div>
+        <div class="panel-meta" id="aircraft-updated">Awaiting data…</div>
+        <div class="panel-body" id="aircraft-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== WEATHER & CLIMATE ============== -->
+  <section class="category">
+    <h2 class="category-title">Weather &amp; Climate</h2>
+    <div class="grid">
+      <div class="panel" id="panel-weather">
+        <div class="panel-header">
+          <h3 class="panel-title">Global Weather — Open-Meteo</h3>
+          <span class="panel-status status-loading" id="weather-status"></span>
+        </div>
+        <div class="panel-meta" id="weather-updated">Awaiting data…</div>
+        <div class="panel-body" id="weather-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="panel" id="panel-ocean">
+        <div class="panel-header">
+          <h3 class="panel-title">Ocean SST — NOAA ERDDAP</h3>
+          <span class="panel-status status-loading" id="ocean-status"></span>
+        </div>
+        <div class="panel-meta" id="ocean-updated">Awaiting data…</div>
+        <div class="panel-body" id="ocean-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="panel" id="panel-lightning">
+        <div class="panel-header">
+          <h3 class="panel-title">Lightning Strikes — LightningMaps</h3>
+          <span class="panel-status status-loading" id="lightning-status"></span>
+        </div>
+        <div class="panel-meta" id="lightning-updated">Awaiting data…</div>
+        <div class="panel-body" id="lightning-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="panel" id="panel-temperature">
+        <div class="panel-header">
+          <h3 class="panel-title">Temperature Anomalies — NASA GISTEMP</h3>
+          <span class="panel-status status-loading" id="temperature-status"></span>
+        </div>
+        <div class="panel-meta" id="temperature-updated">Awaiting data…</div>
+        <div class="panel-body" id="temperature-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="panel" id="panel-volcanic">
+        <div class="panel-header">
+          <h3 class="panel-title">Volcanic Ash &amp; SO₂ — NASA GEOS-5</h3>
+          <span class="panel-status status-loading" id="volcanic-status"></span>
+        </div>
+        <div class="panel-meta" id="volcanic-updated">Awaiting data…</div>
+        <div class="panel-body" id="volcanic-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="panel" id="panel-co2">
+        <div class="panel-header">
+          <h3 class="panel-title">CO₂ Concentration — NOAA ESRL</h3>
+          <span class="panel-status status-loading" id="co2-status"></span>
+        </div>
+        <div class="panel-meta" id="co2-updated">Awaiting data…</div>
+        <div class="panel-body" id="co2-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== SOCIETAL ============== -->
+  <section class="category">
+    <h2 class="category-title">Societal</h2>
+    <div class="grid">
+      <div class="panel" id="panel-news">
+        <div class="panel-header">
+          <h3 class="panel-title">Global News Events — GDELT</h3>
+          <span class="panel-status status-loading" id="news-status"></span>
+        </div>
+        <div class="panel-meta" id="news-updated">Awaiting data…</div>
+        <div class="panel-body" id="news-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="panel" id="panel-crises">
+        <div class="panel-header">
+          <h3 class="panel-title">Humanitarian Crises — ReliefWeb</h3>
+          <span class="panel-status status-loading" id="crises-status"></span>
+        </div>
+        <div class="panel-meta" id="crises-updated">Awaiting data…</div>
+        <div class="panel-body" id="crises-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="panel" id="panel-population">
+        <div class="panel-header">
+          <h3 class="panel-title">Human Distribution — WorldPop</h3>
+          <span class="panel-status status-loading" id="population-status"></span>
+        </div>
+        <div class="panel-meta" id="population-updated">Awaiting data…</div>
+        <div class="panel-body" id="population-body"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="nexus-footer">
+  NEXUS · All telemetry fetched client-side from public, keyless, CORS-open endpoints · No data is stored or proxied
+</footer>
+
+<script>
+/* ================================================================
+   NEXUS — Global Monitoring System
+   ----------------------------------------------------------------
+   Architecture:
+   - NEXUS.utils      : shared helpers (fetch w/ timeout, DOM state)
+   - NEXUS.state      : shared cache of latest fetched payloads
+   - NEXUS.modules    : one async function per monitoring panel
+   - NEXUS.derived    : panels computed from NEXUS.state (risk, regional)
+   - NEXUS.refreshAll : runs every module in parallel, then derived
+   - NEXUS.init       : boots clock, countdown, and 60s refresh loop
+   ================================================================ */
+
+const NEXUS = {
+  state: {
+    earthquakes: null,    // array of USGS features
+    storms: null,         // array of active storms
+    kp: null,             // latest Kp index (number)
+    crises: null,         // count of humanitarian crises
+    aircraft: null,       // count of aircraft
+    news: null,           // array of GDELT articles
+    wildfires: null,      // array of fire detections
+    iss: null,            // { lat, lon, alt, vel }
+  },
+  map: null,               // Leaflet instance
+  mapLayers: {},           // { eq: LayerGroup }
+  issMarker: null,
+
+  /* panelStates tracks 'ok' | 'offline' | 'error' | 'loading' for every panel.
+     Populated by utils.setOk / setOffline / setError / setLoading. */
+  panelStates: {},
+
+  /* liveOnly: when true, panels in 'offline' state are hidden via CSS.
+     Toggle driven by the header button. */
+  liveOnly: false,
+
+  cycle: 0,
+
+  /* ---------- Utility layer ---------- */
+  utils: {
+    el(id) { return document.getElementById(id); },
+
+    /* fetch JSON with timeout + AbortController */
+    async fetchJSON(url, opts = {}, timeout = 15000) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeout);
+      try {
+        const res = await fetch(url, { ...opts, signal: ctrl.signal });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return await res.json();
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+
+    /* fetch plain text (TLE / CSV / txt feeds) */
+    async fetchText(url, opts = {}, timeout = 15000) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeout);
+      try {
+        const res = await fetch(url, { ...opts, signal: ctrl.signal });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return await res.text();
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+
+    setUpdated(id) {
+      const e = this.el(id + '-updated');
+      if (e) e.textContent = 'Updated ' + new Date().toLocaleTimeString('en-GB', { hour12: false }) + ' UTC';
+    },
+
+    setLoading(id) {
+      const s = this.el(id + '-status');
+      if (s) s.className = 'panel-status status-loading';
+      NEXUS.panelStates[id] = 'loading';
+    },
+
+    setOk(id) {
+      const s = this.el(id + '-status');
+      if (s) s.className = 'panel-status status-ok';
+      NEXUS.panelStates[id] = 'ok';
+      NEXUS.utils.applyVisibility(id);
+    },
+
+    /* OFFLINE state — for modules whose endpoints are not browser-safe
+       (CORS-blocked, 404, mixed-content, auth-required, etc.).
+       The panel stays in place but displays a clear offline notice. */
+    setOffline(id, reason) {
+      const s = this.el(id + '-status');
+      if (s) s.className = 'panel-status status-error';
+      const body = this.el(id + '-body');
+      if (body) {
+        body.innerHTML =
+          '<div class="offline-state">' +
+            '<div class="offline-icon">◈</div>' +
+            '<div class="offline-text">OFFLINE</div>' +
+            '<div class="offline-sub">Requires Backend Proxy</div>' +
+            '<div class="offline-detail">' + (reason || 'No keyless CORS-open browser endpoint available') + '</div>' +
+          '</div>';
+      }
+      const meta = this.el(id + '-updated');
+      if (meta) meta.textContent = 'OFFLINE · browser-blocked';
+      NEXUS.panelStates[id] = 'offline';
+      NEXUS.utils.applyVisibility(id);
+    },
+
+    /* Hide/show a panel based on NEXUS.liveOnly + its state */
+    applyVisibility(id) {
+      const panel = this.el('panel-' + id);
+      if (!panel) return;
+      const state = NEXUS.panelStates[id] || 'loading';
+      if (NEXUS.liveOnly && state === 'offline') {
+        panel.classList.add('panel-hidden');
+      } else {
+        panel.classList.remove('panel-hidden');
+      }
+    },
+
+    /* Toggle the live-only filter and refresh visibility on all panels */
+    toggleLiveOnly() {
+      NEXUS.liveOnly = !NEXUS.liveOnly;
+      const btn = this.el('toggle-live');
+      if (btn) {
+        btn.classList.toggle('active', NEXUS.liveOnly);
+        btn.textContent = NEXUS.liveOnly ? '◉ LIVE ONLY' : '○ SHOW ALL';
+      }
+      for (const id of Object.keys(NEXUS.panelStates)) {
+        this.applyVisibility(id);
+      }
+      // Also apply to panels that haven't reported a state yet (still loading)
+      document.querySelectorAll('.panel').forEach(p => {
+        const id = p.id.replace(/^panel-/, '');
+        if (!NEXUS.panelStates[id]) this.applyVisibility(id);
+      });
+    },
+
+    setError(id, msg) {
+      const s = this.el(id + '-status');
+      if (s) s.className = 'panel-status status-error';
+      const body = this.el(id + '-body');
+      if (body) {
+        body.innerHTML =
+          '<div class="error-state">' +
+            '<div class="error-icon">⚠</div>' +
+            '<div class="error-text">Data unavailable</div>' +
+            '<div class="error-detail">' + (msg || 'Could not fetch live data') + '</div>' +
+          '</div>';
+      }
+      this.el(id + '-updated').textContent = 'Update failed · ' + new Date().toLocaleTimeString('en-GB', { hour12: false });
+      NEXUS.panelStates[id] = 'error';
+      NEXUS.utils.applyVisibility(id);
+    },
+
+    /* render an HTML string into the panel body */
+    setBody(id, html) {
+      const body = this.el(id + '-body');
+      if (body) body.innerHTML = html;
+    },
+
+    /* format ms-ago as "3m" / "12s" / "1h" */
+    timeAgo(ms) {
+      const s = Math.floor((Date.now() - ms) / 1000);
+      if (s < 60) return s + 's';
+      if (s < 3600) return Math.floor(s / 60) + 'm';
+      return Math.floor(s / 3600) + 'h';
+    },
+
+    escapeHtml(str) {
+      if (str == null) return '';
+      return String(str)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+  },
+
+  /* ===========================================================
+     MODULES — one async function per monitoring panel.
+     Each function: fetch -> parse -> render -> update timestamp
+     Errors are caught and surfaced as "Data unavailable".
+     =========================================================== */
+  modules: {
+
+    /* ---- Earthquakes — USGS GeoJSON feed (all_hour) ---- */
+    async earthquakes() {
+      const id = 'earthquakes';
+      NEXUS.utils.setLoading(id);
+      try {
+        const url = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson';
+        const data = await NEXUS.utils.fetchJSON(url);
+        const all = data.features || [];
+        const top = all.slice(0, 8);
+        NEXUS.state.earthquakes = all;
+
+        const mag4plus = all.filter(q => (q.properties.mag || 0) >= 4).length;
+        const maxMag = all.reduce((m, q) => Math.max(m, q.properties.mag || 0), 0);
+
+        const rows = top.map(q => {
+          const mag = q.properties.mag || 0;
+          const cls = mag >= 5 ? 'value-high' : mag >= 4 ? 'value-mid' : 'value-low';
+          const place = NEXUS.utils.escapeHtml(q.properties.place || 'Unknown');
+          return '<tr>' +
+            '<td class="mono ' + cls + '">' + mag.toFixed(1) + '</td>' +
+            '<td class="wrap" title="' + place + '">' + place + '</td>' +
+            '<td class="mono">' + NEXUS.utils.timeAgo(q.properties.time) + '</td>' +
+          '</tr>';
+        }).join('');
+
+        NEXUS.utils.setBody(id,
+          '<div class="metric-row">' +
+            '<div class="metric"><div class="metric-value">' + all.length + '</div><div class="metric-label">Past Hour</div></div>' +
+            '<div class="metric"><div class="metric-value amber">' + mag4plus + '</div><div class="metric-label">Mag ≥ 4.0</div></div>' +
+            '<div class="metric"><div class="metric-value red">' + (maxMag || 0).toFixed(1) + '</div><div class="metric-label">Peak Mag</div></div>' +
+          '</div>' +
+          '<table class="data-table"><thead><tr><th>Mag</th><th>Location</th><th>Age</th></tr></thead><tbody>' + rows + '</tbody></table>'
+        );
+        NEXUS.utils.setOk(id);
+        NEXUS.utils.setUpdated(id);
+      } catch (e) {
+        NEXUS.utils.setError(id, e.message);
+        NEXUS.state.earthquakes = null;
+      }
+    },
+
+    /* ---- Wildfires — NASA FIRMS — OFFLINE ---- */
+    /* NASA FIRMS WFS endpoint requires a MAP_KEY. No keyless,
+       CORS-open browser endpoint is available. */
+    async wildfires() {
+      const id = 'wildfires';
+      NEXUS.utils.setLoading(id);
+      NEXUS.utils.setOffline(id, 'NASA FIRMS requires MAP_KEY (auth-gated)');
+      NEXUS.state.wildfires = null;
+    },
+
+    /* ---- Storms & Cyclones — NOAA NHC — OFFLINE ---- */
+    /* NHC CurrentStorms.json returns 200 but sends no
+       Access-Control-Allow-Origin header — browser refuses the response. */
+    async storms() {
+      const id = 'storms';
+      NEXUS.utils.setLoading(id);
+      NEXUS.utils.setOffline(id, 'NHC JSON has no CORS header (browser-blocked)');
+      NEXUS.state.storms = null;
+    },
+
+    /* ---- Floods & Drought — GDACS — OFFLINE ---- */
+    /* GDACS RSS feed returns 200 but sends no CORS header. */
+    async floods() {
+      const id = 'floods';
+      NEXUS.utils.setLoading(id);
+      NEXUS.utils.setOffline(id, 'GDACS RSS has no CORS header (browser-blocked)');
+    },
+
+    /* ---- ISS Position — WhereTheISS (CORS-open ISS tracker) ---- */
+    async iss() {
+      const id = 'iss';
+      NEXUS.utils.setLoading(id);
+      try {
+        /* Open-Notify has no HTTPS and CORS issues; we use the
+           CORS-open wheretheiss.at mirror which returns the same data. */
+        const url = 'https://api.wheretheiss.at/v1/satellites/25544';
+        const data = await NEXUS.utils.fetchJSON(url);
+        const lat = data.latitude;
+        const lon = data.longitude;
+        const alt = data.altitude; // km
+        const vel = data.velocity; // km/h
+        const ts = new Date(data.timestamp * 1000);
+
+        NEXUS.utils.setBody(id,
+          '<div class="kv-grid">' +
+            '<div class="kv"><div class="k">Latitude</div><div class="v value-info">' + lat.toFixed(4) + '°</div></div>' +
+            '<div class="kv"><div class="k">Longitude</div><div class="v value-info">' + lon.toFixed(4) + '°</div></div>' +
+            '<div class="kv"><div class="k">Altitude</div><div class="v">' + alt.toFixed(1) + ' km</div></div>' +
+            '<div class="kv"><div class="k">Velocity</div><div class="v">' + vel.toFixed(0) + ' km/h</div></div>' +
+          '</div>' +
+          '<div style="margin-top:10px;font-size:11px;color:var(--text-muted);font-family:var(--font-mono)">' +
+            'Timestamp: ' + ts.toISOString() + '</div>'
+        );
+        NEXUS.utils.setOk(id);
+        NEXUS.utils.setUpdated(id);
+        NEXUS.state.iss = { lat, lon, alt, vel };
+      } catch (e) {
+        NEXUS.utils.setError(id, e.message);
+        NEXUS.state.iss = null;
+      }
+    },
+
+    /* ---- Satellite Orbits — CelesTrak — OFFLINE ---- */
+    /* CelesTrak's gp.php endpoint is not reliably reachable from this
+       environment and does not send CORS headers in our tests. */
+    async satellites() {
+      const id = 'satellites';
+      NEXUS.utils.setLoading(id);
+      NEXUS.utils.setOffline(id, 'CelesTrak gp.php unreachable / no CORS header');
+    },
+
+    /* ---- Space Weather — NOAA SWPC Kp Index — OFFLINE ---- */
+    /* The /json/kp-index.json endpoint the user supplied returns 404.
+       The /products/noaa-planetary-k-index.json alternative exists but
+       was not in the verified-working list, so this module stays offline. */
+    async spaceweather() {
+      const id = 'spaceweather';
+      NEXUS.utils.setLoading(id);
+      NEXUS.utils.setOffline(id, 'SWPC /json/kp-index.json returns 404 (endpoint removed)');
+      NEXUS.state.kp = null;
+    },
+
+    /* ---- Aurora Forecast — NOAA OVATION (JSON nowcast) ---- */
+    async aurora() {
+      const id = 'aurora';
+      NEXUS.utils.setLoading(id);
+      try {
+        /* SWPC OVATION latest aurora nowcast JSON.
+           Structure: { "observation_time": "...", "coordinates":
+             [ [lon, lat, probability], ... ] }
+           1024x512 grid of probabilities (0..100). We sample to summarise. */
+        const url = 'https://services.swpc.noaa.gov/json/ovation_aurora_latest.json';
+        const data = await NEXUS.utils.fetchJSON(url);
+        const coords = data.coordinates || [];
+        if (!coords.length) throw new Error('Empty feed');
+
+        let maxProb = 0, sumProb = 0, count = 0;
+        let northMax = 0, southMax = 0;
+        for (const c of coords) {
+          const lat = c[1], prob = c[2];
+          if (typeof prob !== 'number' || isNaN(prob)) continue;
+          maxProb = Math.max(maxProb, prob);
+          sumProb += prob;
+          count++;
+          if (lat >= 50 && lat <= 80) northMax = Math.max(northMax, prob);
+          if (lat <= -50 && lat >= -80) southMax = Math.max(southMax, prob);
+        }
+
+        let level, cls;
+        if (maxProb >= 75) { level = 'HIGH'; cls = 'value-high'; }
+        else if (maxProb >= 40) { level = 'MEDIUM'; cls = 'value-mid'; }
+        else if (maxProb >= 10) { level = 'LOW'; cls = 'value-info'; }
+        else { level = 'MINIMAL'; cls = 'value-low'; }
+
+        const obsTime = data.observation_time || '—';
+
+        NEXUS.utils.setBody(id,
+          '<div class="metric-row">' +
+            '<div class="metric"><div class="metric-value ' + cls + '">' + level + '</div><div class="metric-label">Aurora Probability</div></div>' +
+            '<div class="metric"><div class="metric-value ' + cls + '">' + maxProb.toFixed(0) + '%</div><div class="metric-label">Peak Global</div></div>' +
+          '</div>' +
+          '<div class="kv-grid" style="margin-top:4px">' +
+            '<div class="kv"><div class="k">Northern Oval</div><div class="v value-info">' + northMax.toFixed(0) + '%</div></div>' +
+            '<div class="kv"><div class="k">Southern Oval</div><div class="v value-info">' + southMax.toFixed(0) + '%</div></div>' +
+          '</div>' +
+          '<div style="font-size:10px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono)">Obs: ' + NEXUS.utils.escapeHtml(obsTime) + ' · ' + count.toLocaleString() + ' grid pts</div>'
+        );
+        NEXUS.utils.setOk(id);
+        NEXUS.utils.setUpdated(id);
+      } catch (e) {
+        NEXUS.utils.setError(id, e.message);
+      }
+    },
+
+    /* ---- Aircraft Density — OpenSky Network (anonymous, keyless) ---- */
+    async aircraft() {
+      const id = 'aircraft';
+      NEXUS.utils.setLoading(id);
+      try {
+        /* Anonymous endpoint returns all current state vectors. */
+        const url = 'https://opensky-network.org/api/states/all';
+        const data = await NEXUS.utils.fetchJSON(url, {}, 20000);
+        const states = data.states || [];
+        const total = data.states ? data.states.length : 0;
+        NEXUS.state.aircraft = total;
+
+        // sample by country of origin
+        const byCountry = {};
+        for (const s of states) {
+          const c = s[2] || 'Unknown';
+          byCountry[c] = (byCountry[c] || 0) + 1;
+        }
+        const topCountries = Object.entries(byCountry)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 6);
+
+        // sample some callsigns
+        const sample = states
+          .filter(s => s[1]) // has callsign
+          .slice(0, 6)
+          .map(s => {
+            const cs = (s[1] || '').trim();
+            const country = s[2] || '?';
+            return '<tr><td class="mono value-info">' + cs + '</td><td class="mono">' + country + '</td><td class="mono">' +
+              (s[6] != null ? s[6].toFixed(0) : '?') + ', ' + (s[5] != null ? s[5].toFixed(0) : '?') + '</td></tr>';
+          }).join('');
+
+        NEXUS.utils.setBody(id,
+          '<div class="metric-row">' +
+            '<div class="metric"><div class="metric-value">' + total.toLocaleString() + '</div><div class="metric-label">Aircraft Airborne</div></div>' +
+            '<div class="metric"><div class="metric-value violet">' + Object.keys(byCountry).length + '</div><div class="metric-label">Countries</div></div>' +
+          '</div>' +
+          '<table class="data-table"><thead><tr><th>Callsign</th><th>Country</th><th>Alt,Lat</th></tr></thead><tbody>' + sample + '</tbody></table>' +
+          '<div style="font-size:10px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono)">' +
+            'Top: ' + topCountries.map(([c, n]) => c + ' ' + n).join(' · ') + '</div>'
+        );
+        NEXUS.utils.setOk(id);
+        NEXUS.utils.setUpdated(id);
+      } catch (e) {
+        NEXUS.utils.setError(id, e.message + ' (rate-limited?)');
+        NEXUS.state.aircraft = null;
+      }
+    },
+
+    /* ---- Global Weather — Open-Meteo (single city, current_weather) ---- */
+    async weather() {
+      const id = 'weather';
+      NEXUS.utils.setLoading(id);
+      try {
+        /* Open-Meteo single-point forecast with current_weather=true.
+           (The legacy multi-city call used the deprecated current= param;
+           this endpoint is the verified-working current API.) */
+        const url = 'https://api.open-meteo.com/v1/forecast?latitude=40.71&longitude=-74.01&current_weather=true';
+        const data = await NEXUS.utils.fetchJSON(url);
+        const cw = data.current_weather || {};
+        const temp = cw.temperature;
+        const wind = cw.windspeed;
+        const wdir = cw.winddirection;
+        const code = cw.weathercode;
+        const time = cw.time;
+
+        const wmo = (c) => {
+          if (c === 0) return 'Clear';
+          if (c <= 3) return 'Partly Cloudy';
+          if (c <= 48) return 'Fog';
+          if (c <= 67) return 'Rain';
+          if (c <= 77) return 'Snow';
+          if (c <= 82) return 'Showers';
+          if (c >= 95) return 'Thunderstorm';
+          return '—';
+        };
+        const cond = wmo(code);
+        const tCls = temp >= 30 ? 'value-high' : temp <= 5 ? 'value-info' : 'value-low';
+
+        NEXUS.utils.setBody(id,
+          '<div class="metric-row">' +
+            '<div class="metric"><div class="metric-value ' + tCls + '">' + (temp != null ? temp.toFixed(1) + '°C' : '—') + '</div><div class="metric-label">Temperature</div></div>' +
+            '<div class="metric"><div class="metric-value">' + (wind != null ? wind.toFixed(0) : '—') + '</div><div class="metric-label">Wind km/h</div></div>' +
+          '</div>' +
+          '<div class="kv-grid" style="margin-top:4px">' +
+            '<div class="kv"><div class="k">Location</div><div class="v">New York · 40.71°N, 74.01°W</div></div>' +
+            '<div class="kv"><div class="k">Conditions</div><div class="v value-info">' + cond + '</div></div>' +
+            '<div class="kv"><div class="k">Wind Direction</div><div class="v">' + (wdir != null ? wdir + '°' : '—') + '</div></div>' +
+            '<div class="kv"><div class="k">WMO Code</div><div class="v">' + (code != null ? code : '—') + '</div></div>' +
+          '</div>' +
+          '<div style="font-size:10px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono)">Obs: ' + NEXUS.utils.escapeHtml(time || '—') + '</div>'
+        );
+        NEXUS.utils.setOk(id);
+        NEXUS.utils.setUpdated(id);
+      } catch (e) {
+        NEXUS.utils.setError(id, e.message);
+      }
+    },
+
+    /* ---- Ocean SST — NOAA ERDDAP — OFFLINE ---- */
+    /* The user-supplied URL /jplMURSST.json?sst returns 404 — the griddap
+       endpoint requires bracketed [time][lat][lon] subset selectors, and
+       ERDDAP does not send CORS headers on griddap responses. */
+    async ocean() {
+      const id = 'ocean';
+      NEXUS.utils.setLoading(id);
+      NEXUS.utils.setOffline(id, 'ERDDAP griddap needs subset syntax + no CORS header');
+    },
+
+    /* ---- Lightning Strikes — Blitzortung — OFFLINE ---- */
+    /* The /GeoJSON/current.json URL returns 404. Blitzortung requires
+       auth for strike data; no keyless CORS endpoint is published. */
+    async lightning() {
+      const id = 'lightning';
+      NEXUS.utils.setLoading(id);
+      NEXUS.utils.setOffline(id, 'Blitzortung has no public keyless CORS JSON endpoint');
+    },
+
+    /* ---- Temperature Anomalies — NASA GISTEMP — OFFLINE ---- */
+    /* GISS serves the CSV / graph.txt with 200 OK but sends no
+       Access-Control-Allow-Origin header — browser fetch is refused. */
+    async temperature() {
+      const id = 'temperature';
+      NEXUS.utils.setLoading(id);
+      NEXUS.utils.setOffline(id, 'NASA GISS sends no CORS header (browser-blocked)');
+    },
+
+    /* ---- Volcanic Ash & SO₂ — NASA GEOS-5 — OFFLINE ---- */
+    /* The user-supplied /api/geos5/so2/latest.json URL returns 404 (HTML
+       404 page). No public keyless JSON endpoint for SO₂/ash exists. */
+    async volcanic() {
+      const id = 'volcanic';
+      NEXUS.utils.setLoading(id);
+      NEXUS.utils.setOffline(id, 'GEOS-5 /api/geos5/so2/latest.json returns 404');
+    },
+
+    /* ---- CO₂ Concentration — NOAA ESRL — OFFLINE ---- */
+    /* The user-supplied co2_mm_mlo.json URL does not exist (404). The .txt
+       version exists but sends no CORS header — browser-blocked either way. */
+    async co2() {
+      const id = 'co2';
+      NEXUS.utils.setLoading(id);
+      NEXUS.utils.setOffline(id, 'co2_mm_mlo.json is 404; .txt has no CORS header');
+    },
+
+    /* ---- Global News Events — GDELT — OFFLINE ---- */
+    /* The user-supplied /events/geojson?query=latest URL returns 404.
+       The alternate /doc/doc endpoint is heavily rate-limited (429) and
+       sends no CORS header on error responses. */
+    async news() {
+      const id = 'news';
+      NEXUS.utils.setLoading(id);
+      NEXUS.utils.setOffline(id, 'GDELT events geojson URL is 404; alt endpoint rate-limited');
+      NEXUS.state.news = null;
+    },
+
+    /* ---- Humanitarian Crises — ReliefWeb — OFFLINE ---- */
+    /* The /v1/disasters endpoint returns 410 Gone (decommissioned).
+       The /v1/reports endpoint also returns 410. ReliefWeb v1 API is shut down. */
+    async crises() {
+      const id = 'crises';
+      NEXUS.utils.setLoading(id);
+      NEXUS.utils.setOffline(id, 'ReliefWeb v1 API decommissioned (410 Gone)');
+      NEXUS.state.crises = null;
+    },
+
+    /* ---- Human Distribution — WorldPop — OFFLINE ---- */
+    /* WorldPop publishes raster tiles via TMS at
+       /GIS/Population/Global_2000_2020/2020/tiles/{z}/{x}/{y}.png —
+       these are PNG image tiles (not JSON), and the FTP server sends no
+       CORS header. There is no keyless JSON summary endpoint. */
+    async population() {
+      const id = 'population';
+      NEXUS.utils.setLoading(id);
+      NEXUS.utils.setOffline(id, 'WorldPop serves TMS PNG tiles (no JSON, no CORS)');
+    },
+  },
+
+  /* ===========================================================
+     DERIVED — computed from NEXUS.state after source modules run
+     =========================================================== */
+  derived: {
+
+    /* Global Risk Index — 0..100 score combining:
+       - earthquakes ≥ M4.0 (max 25)
+       - active storms (max 25)
+       - Kp index (max 25)
+       - humanitarian crises (max 25)
+       Rendered as a canvas arc gauge. */
+    async riskIndex() {
+      const id = 'risk';
+      let score = 0;
+      const factors = [];
+
+      // Earthquakes ≥ M4.0
+      if (NEXUS.state.earthquakes) {
+        const big = NEXUS.state.earthquakes.filter(q => (q.properties.mag || 0) >= 4).length;
+        const c = Math.min(25, big * 4);
+        score += c;
+        factors.push(['Earthquakes ≥M4.0', big + ' (+' + c + ')']);
+      } else {
+        factors.push(['Earthquakes', 'no data (+0)']);
+      }
+
+      // Active storms
+      if (NEXUS.state.storms) {
+        const c = Math.min(25, NEXUS.state.storms.length * 10);
+        score += c;
+        factors.push(['Active cyclones', NEXUS.state.storms.length + ' (+' + c + ')']);
+      } else {
+        factors.push(['Cyclones', 'no data (+0)']);
+      }
+
+      // Kp index
+      if (NEXUS.state.kp != null) {
+        const c = Math.min(25, Math.round(NEXUS.state.kp * 3));
+        score += c;
+        factors.push(['Space weather Kp', NEXUS.state.kp.toFixed(1) + ' (+' + c + ')']);
+      } else {
+        factors.push(['Space weather', 'no data (+0)']);
+      }
+
+      // Humanitarian crises
+      if (NEXUS.state.crises != null) {
+        const c = Math.min(25, Math.round(NEXUS.state.crises * 2));
+        score += c;
+        factors.push(['Humanitarian crises', NEXUS.state.crises + ' (+' + c + ')']);
+      } else {
+        factors.push(['Humanitarian', 'no data (+0)']);
+      }
+
+      // Determine severity
+      let level, color, cls;
+      if (score >= 70) { level = 'CRITICAL'; color = '#ef4444'; cls = 'value-high'; }
+      else if (score >= 40) { level = 'ELEVATED'; color = '#fbbf24'; cls = 'value-mid'; }
+      else if (score >= 20) { level = 'GUARDED'; color = '#3b82f6'; cls = 'value-info'; }
+      else { level = 'NOMINAL'; color = '#22c55e'; cls = 'value-low'; }
+
+      const factorsHtml = factors.map(f =>
+        '<div><span>' + f[0] + '</span><span class="' + cls + '">' + f[1] + '</span></div>'
+      ).join('');
+
+      NEXUS.utils.setBody(id,
+        '<div class="risk-display">' +
+          '<div class="gauge-wrap">' +
+            '<canvas id="risk-gauge" width="360" height="220"></canvas>' +
+            '<div class="gauge-readout">' +
+              '<div class="gauge-score ' + cls + '">' + score + '</div>' +
+              '<div class="gauge-label">' + level + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="risk-factors">' + factorsHtml + '</div>' +
+        '</div>'
+      );
+
+      // draw the gauge
+      const canvas = document.getElementById('risk-gauge');
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width, h = canvas.height;
+        const cx = w / 2, cy = h - 20;
+        const r = Math.min(w / 2 - 20, 140);
+        const start = Math.PI, end = 2 * Math.PI;
+
+        ctx.clearRect(0, 0, w, h);
+
+        // background arc (gradient: green -> amber -> red)
+        const grad = ctx.createLinearGradient(cx - r, 0, cx + r, 0);
+        grad.addColorStop(0, '#22c55e');
+        grad.addColorStop(0.5, '#fbbf24');
+        grad.addColorStop(1, '#ef4444');
+        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+        ctx.lineWidth = 18;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, start, end);
+        ctx.stroke();
+
+        // tick marks
+        ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 10; i++) {
+          const a = start + (i / 10) * Math.PI;
+          const x1 = cx + Math.cos(a) * (r - 12);
+          const y1 = cy + Math.sin(a) * (r - 12);
+          const x2 = cx + Math.cos(a) * (r + 12);
+          const y2 = cy + Math.sin(a) * (r + 12);
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.stroke();
+        }
+
+        // score arc
+        const scoreEnd = start + (score / 100) * Math.PI;
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 14;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, start, Math.max(start + 0.01, scoreEnd));
+        ctx.stroke();
+
+        // needle
+        const na = start + (score / 100) * Math.PI;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(na) * (r - 4), cy + Math.sin(na) * (r - 4));
+        ctx.stroke();
+        // needle hub
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 5, 0, 2 * Math.PI);
+        ctx.fill();
+
+        // glow
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 18;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 3, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
+      NEXUS.utils.el(id + '-status').className = 'panel-status status-ok';
+      NEXUS.utils.setUpdated(id);
+    },
+
+    /* Regional Stability Score — 0..100 per region.
+       Lower score = more stable. Computed from:
+       - earthquakes in region (weighted by magnitude)
+       - storms in region
+       - news tone (GDELT) for region
+       - humanitarian crises in region (ReliefWeb country match)
+       Output as horizontal bars per region. */
+    async regionalStability() {
+      const id = 'regional';
+      const regions = [
+        { name: 'Americas', lats: [-56, 78], lons: [-170, -30], score: 80, events: [] },
+        { name: 'Europe',   lats: [35, 72],  lons: [-25, 45],   score: 80, events: [] },
+        { name: 'Africa',   lats: [-35, 37], lons: [-20, 55],   score: 80, events: [] },
+        { name: 'Asia',     lats: [0, 60],   lons: [45, 150],   score: 80, events: [] },
+        { name: 'Oceania',  lats: [-50, 0],  lons: [110, 180],  score: 80, events: [] }
+      ];
+
+      const inBox = (lat, lon, r) =>
+        lat >= r.lats[0] && lat <= r.lats[1] && lon >= r.lons[0] && lon <= r.lons[1];
+
+      // Earthquakes contribution
+      if (NEXUS.state.earthquakes) {
+        for (const r of regions) {
+          const inReg = NEXUS.state.earthquakes.filter(q => {
+            const lon = q.geometry.coordinates[0];
+            const lat = q.geometry.coordinates[1];
+            return inBox(lat, lon, r);
+          });
+          const big = inReg.filter(q => (q.properties.mag || 0) >= 4).length;
+          const penalty = Math.min(20, big * 5);
+          r.score -= penalty;
+          if (inReg.length) r.events.push(inReg.length + ' quakes (' + big + ' ≥M4)');
+        }
+      }
+
+      // Storms contribution (Atlantic = Americas, Pacific = Asia)
+      if (NEXUS.state.storms) {
+        for (const s of NEXUS.state.storms) {
+          const lat = s.latitude, lon = s.longitude;
+          for (const r of regions) {
+            if (lat != null && lon != null && inBox(lat, lon, r)) {
+              r.score -= 8;
+              r.events.push('cyclone ' + (s.name || '?'));
+            }
+          }
+        }
+      }
+
+      // News tone contribution (GDELT country codes map to regions)
+      if (NEXUS.state.news) {
+        const countryMap = {
+          'US': 'Americas', 'BR': 'Americas', 'AR': 'Americas', 'MX': 'Americas', 'CA': 'Americas', 'CO': 'Americas',
+          'UK': 'Europe', 'FR': 'Europe', 'DE': 'Europe', 'IT': 'Europe', 'ES': 'Europe', 'RU': 'Europe', 'UA': 'Europe',
+          'CN': 'Asia', 'IN': 'Asia', 'JP': 'Asia', 'KR': 'Asia', 'PK': 'Asia', 'ID': 'Asia', 'IR': 'Asia', 'AF': 'Asia',
+          'NG': 'Africa', 'ZA': 'Africa', 'EG': 'Africa', 'ET': 'Africa', 'SD': 'Africa', 'KE': 'Africa', 'CD': 'Africa',
+          'AU': 'Oceania', 'NZ': 'Oceania', 'PG': 'Oceania'
+        };
+        const toneByRegion = {};
+        for (const a of NEXUS.state.news) {
+          const countries = (a.country || '').split(';').filter(Boolean);
+          const tone = a.tone ? parseFloat(a.tone.split(',')[0]) : 0;
+          for (const cc of countries) {
+            const reg = countryMap[cc.toUpperCase()];
+            if (reg) {
+              toneByRegion[reg] = (toneByRegion[reg] || []);
+              toneByRegion[reg].push(tone);
+            }
+          }
+        }
+        for (const r of regions) {
+          const tones = toneByRegion[r.name];
+          if (tones && tones.length) {
+            const avg = tones.reduce((s, t) => s + t, 0) / tones.length;
+            const penalty = Math.min(15, Math.max(0, -avg * 2));
+            r.score -= Math.round(penalty);
+            r.events.push(tones.length + ' neg events');
+          }
+        }
+      }
+
+      // Humanitarian crises contribution (ReliefWeb country field)
+      // Already counted in NEXUS.state.crises as a count; we apply
+      // a flat penalty across all regions as a proxy.
+      if (NEXUS.state.crises != null && NEXUS.state.crises > 0) {
+        const penalty = Math.min(10, Math.round(NEXUS.state.crises / 2));
+        for (const r of regions) {
+          r.score -= penalty;
+        }
+      }
+
+      // clamp & color
+      for (const r of regions) {
+        r.score = Math.max(0, Math.min(100, r.score));
+        if (r.score >= 70) r.cls = 'green';
+        else if (r.score >= 45) r.cls = 'amber';
+        else r.cls = 'red';
+      }
+
+      const bars = regions.map(r =>
+        '<div class="region-bar">' +
+          '<div class="region-name">' + r.name + '</div>' +
+          '<div class="bar-track"><div class="bar-fill ' + r.cls + '" style="width:' + r.score + '%"></div></div>' +
+          '<div class="region-score ' + (r.cls === 'green' ? 'value-low' : r.cls === 'amber' ? 'value-mid' : 'value-high') + '">' + r.score + '</div>' +
+          (r.events.length ? '<div class="region-events">' + r.events.join(' · ') + '</div>' : '') +
+        '</div>'
+      ).join('');
+
+      NEXUS.utils.setBody(id,
+        '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;font-family:var(--font-mono)">' +
+          'Higher = more stable · derived from quakes, storms, news tone, crises' +
+        '</div>' +
+        '<div class="region-bars">' + bars + '</div>'
+      );
+
+      NEXUS.utils.el(id + '-status').className = 'panel-status status-ok';
+      NEXUS.utils.setUpdated(id);
+    }
+  },
+
+  /* ===========================================================
+     REFRESH — run all source modules in parallel, then derived
+     =========================================================== */
+  async refreshAll() {
+    NEXUS.cycle++;
+    NEXUS.utils.el('cycle-count').textContent = '#' + NEXUS.cycle;
+
+    // run every source module in parallel (errors handled inside)
+    const tasks = Object.values(this.modules).map(fn => fn.call(this));
+    await Promise.allSettled(tasks);
+
+    // then compute derived panels (they read from NEXUS.state)
+    await Promise.allSettled([
+      this.derived.riskIndex(),
+      this.derived.regionalStability()
+    ]);
+
+    this.renderMap();
+  },
+
+  /* ===========================================================
+     TACTICAL MAP — Leaflet, holographic style, no radar visuals
+     =========================================================== */
+  initMap() {
+    const map = L.map('tactical-map', {
+      worldCopyJump: true,
+      zoomControl: true,
+      attributionControl: false
+    }).setView([20, 0], 2);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 18
+    }).addTo(map);
+
+    NEXUS.map = map;
+    NEXUS.mapLayers.eq = L.layerGroup().addTo(map);
+    setTimeout(() => map.invalidateSize(), 250);
+  },
+
+  renderMap() {
+    if (!NEXUS.map) return;
+    let tracked = 0;
+
+    // Earthquakes — color/size scaled by magnitude
+    if (NEXUS.mapLayers.eq) {
+      NEXUS.mapLayers.eq.clearLayers();
+      if (NEXUS.state.earthquakes) {
+        NEXUS.state.earthquakes.forEach(q => {
+          const mag = q.properties.mag || 0;
+          const coords = q.geometry.coordinates;
+          const color = mag >= 5 ? '#ff003c' : mag >= 4 ? '#ffb800' : '#00f0ff';
+          L.circleMarker([coords[1], coords[0]], {
+            radius: Math.max(5, mag * 2.8),
+            color, fillColor: color, fillOpacity: 0.65, weight: 2, opacity: 0.9,
+            className: 'quake-marker'
+          }).bindPopup('<b>M' + mag.toFixed(1) + '</b><br>' + NEXUS.utils.escapeHtml(q.properties.place || 'Unknown') +
+            '<br>' + NEXUS.utils.timeAgo(q.properties.time)).addTo(NEXUS.mapLayers.eq);
+          tracked++;
+        });
+      }
+    }
+
+    // ISS — live marker
+    if (NEXUS.state.iss) {
+      const { lat, lon } = NEXUS.state.iss;
+      const issIcon = L.divIcon({ html: '🛰', className: 'iss-marker', iconSize: [18, 18] });
+      if (NEXUS.issMarker) {
+        NEXUS.issMarker.setLatLng([lat, lon]);
+      } else {
+        NEXUS.issMarker = L.marker([lat, lon], { icon: issIcon }).bindPopup('ISS — International Space Station').addTo(NEXUS.map);
+      }
+      tracked++;
+    }
+
+    const readout = NEXUS.utils.el('map-readout');
+    if (readout) readout.textContent = 'TRACKING ' + tracked + ' OBJECTS';
+  },
+
+  /* ===========================================================
+     INIT — boot clock, countdown, 60s refresh loop, and toggle button
+     =========================================================== */
+  init() {
+    // Global UTC clock — ticks every second
+    const tickClock = () => {
+      const d = new Date();
+      const hh = String(d.getUTCHours()).padStart(2, '0');
+      const mm = String(d.getUTCMinutes()).padStart(2, '0');
+      const ss = String(d.getUTCSeconds()).padStart(2, '0');
+      NEXUS.utils.el('global-clock').textContent = hh + ':' + mm + ':' + ss;
+    };
+    tickClock();
+    setInterval(tickClock, 1000);
+
+    // Refresh countdown — counts down 60 -> 0, then refreshAll() fires
+    let countdown = 60;
+    const tickCountdown = () => {
+      countdown--;
+      if (countdown <= 0) {
+        countdown = 60;
+        NEXUS.refreshAll();
+      }
+      NEXUS.utils.el('next-refresh').textContent = countdown + 's';
+    };
+    setInterval(tickCountdown, 1000);
+
+    // Toggle button — filter panels to show only those with live data
+    const toggleBtn = NEXUS.utils.el('toggle-live');
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => NEXUS.utils.toggleLiveOnly());
+    }
+
+    // Tactical map — init once, then it's updated on every refresh cycle
+    this.initMap();
+
+    // initial pull (don't wait — kick off immediately)
+    this.refreshAll();
+  }
+};
+
+document.addEventListener('DOMContentLoaded', () => NEXUS.init());
+
+/* ===========================================================
+   ATMOSPHERIC BACKGROUND — Three.js wireframe globe + starfield
+   Purely decorative, z-index:0, pointer-events:none. Degrades
+   silently if WebGL/Three.js fails to load (canvas just stays empty
+   behind the existing CSS grid/gradient layers).
+   =========================================================== */
+(function initGlobeBackground() {
+  if (typeof THREE === 'undefined') return;
+  const canvas = document.getElementById('globe-bg');
+  if (!canvas) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  } catch (e) { return; }
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.position.z = 5.4;
+
+  function resize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    renderer.setSize(w, h);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  // ---- Wireframe globe ----
+  const globeGeo = new THREE.SphereGeometry(2, 28, 20);
+  const globeMat = new THREE.MeshBasicMaterial({
+    color: 0x00f0ff, wireframe: true, transparent: true, opacity: 0.16
+  });
+  const globe = new THREE.Mesh(globeGeo, globeMat);
+  globe.position.set(1.6, -0.4, -2);
+  scene.add(globe);
+
+  // subtle inner core glow sphere
+  const coreGeo = new THREE.SphereGeometry(1.92, 24, 18);
+  const coreMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.025 });
+  const core = new THREE.Mesh(coreGeo, coreMat);
+  core.position.copy(globe.position);
+  scene.add(core);
+
+  // a couple of orbit rings (satellite paths — static tilt, rotate with globe)
+  function makeRing(radius, tiltX, tiltZ, color, opacity) {
+    const ringGeo = new THREE.TorusGeometry(radius, 0.004, 8, 96);
+    const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.position.copy(globe.position);
+    ring.rotation.x = tiltX;
+    ring.rotation.z = tiltZ;
+    scene.add(ring);
+    return ring;
+  }
+  const ring1 = makeRing(2.35, Math.PI / 2.6, 0.3, 0x00f0ff, 0.12);
+  const ring2 = makeRing(2.6, Math.PI / 2.1, -0.5, 0xbd00ff, 0.08);
+
+  // ---- Starfield ----
+  const starCount = 900;
+  const starPositions = new Float32Array(starCount * 3);
+  for (let i = 0; i < starCount; i++) {
+    const radius = 20 + Math.random() * 60;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos((Math.random() * 2) - 1);
+    starPositions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+    starPositions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+    starPositions[i * 3 + 2] = radius * Math.cos(phi) - 10;
+  }
+  const starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+  const starMat = new THREE.PointsMaterial({ color: 0xaefcff, size: 0.045, transparent: true, opacity: 0.55 });
+  const stars = new THREE.Points(starGeo, starMat);
+  scene.add(stars);
+
+  let frame = 0;
+  function animate() {
+    frame++;
+    globe.rotation.y += 0.0011;
+    core.rotation.y += 0.0011;
+    ring1.rotation.y += 0.0006;
+    ring2.rotation.y -= 0.0004;
+    stars.rotation.y += 0.00006;
+    renderer.render(scene, camera);
+    requestAnimationFrame(animate);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>
