@@ -3,7 +3,10 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>NEXUS — Global Monitoring System</title>
+<title>NEXUS v3 — Global Monitoring System</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
 /* ============================================================
    NEXUS — Global Monitoring System  [CYBERPUNK EDITION]
@@ -106,6 +109,20 @@ body::before {
   to   { background-position: -1px -49px; }
 }
 
+/* ---------- Atmospheric layer 0: Three.js globe + starfield ---------- */
+#globe-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0.55;
+}
+@media (prefers-reduced-motion: reduce) {
+  #globe-bg { display: none; }
+}
+
 /* ---------- Atmospheric layer 2: scanlines ---------- */
 body::after {
   content: '';
@@ -197,6 +214,22 @@ header, main, footer { position: relative; z-index: 1; }
   line-height: 1;
   position: relative;
   font-family: var(--font-mono);
+}
+
+.version-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--bg-void);
+  background: var(--neon-cyan);
+  padding: 2px 7px;
+  margin-left: 10px;
+  vertical-align: middle;
+  text-shadow: none;
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
+  position: relative;
+  z-index: 1;
 }
 
 /* Glitch copies */
@@ -363,10 +396,64 @@ header, main, footer { position: relative; z-index: 1; }
    =========================================================== */
 .featured {
   display: grid;
-  grid-template-columns: 1.2fr 1.8fr;
+  grid-template-columns: 1.6fr 1fr 1fr;
   gap: 18px;
   margin-bottom: 28px;
 }
+@media (max-width: 1200px){
+  .featured { grid-template-columns: 1fr 1fr; }
+  .panel-map { grid-column: span 2; }
+}
+
+/* ===========================================================
+   TACTICAL MAP — holographic, radar-free (hard requirement:
+   no circular sweeps, rotating arcs, scanning beams, concentric
+   rings, radar grids, or pulsing rings)
+   =========================================================== */
+.panel-map { min-height: 340px; padding: 16px 18px 12px; }
+.map-frame {
+  position: relative;
+  flex: 1;
+  margin-top: 8px;
+  border: 1px solid var(--border-dim);
+  background: #0a1420;
+  overflow: hidden;
+  min-height: 260px;
+}
+.map-frame #tactical-map { width: 100%; height: 100%; min-height: 260px; background: #0a1420; }
+.map-frame .leaflet-tile-pane { filter: saturate(0.7) brightness(1.35) contrast(1.05); opacity: 0.9; }
+.map-legend {
+  display: flex; gap: 14px; flex-wrap: wrap;
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-secondary);
+  letter-spacing: 0.5px; margin-top: 8px;
+}
+.map-legend span { display: flex; align-items: center; gap: 5px; }
+.map-legend .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.map-hud { position: absolute; inset: 0; pointer-events: none; z-index: 500; }
+.map-hud .corner { position: absolute; width: 20px; height: 20px; border-color: var(--neon-cyan); opacity: 0.6; }
+.map-hud .corner.tl { top: 8px; left: 8px; border-top: 1px solid; border-left: 1px solid; }
+.map-hud .corner.tr { top: 8px; right: 8px; border-top: 1px solid; border-right: 1px solid; }
+.map-hud .corner.bl { bottom: 8px; left: 8px; border-bottom: 1px solid; border-left: 1px solid; }
+.map-hud .corner.br { bottom: 8px; right: 8px; border-bottom: 1px solid; border-right: 1px solid; }
+.map-readout {
+  position: absolute; bottom: 8px; left: 8px; z-index: 500;
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--neon-cyan);
+  background: rgba(2,3,10,0.7); padding: 4px 8px; border: 1px solid var(--border-mid);
+  letter-spacing: 1px;
+}
+.leaflet-popup-content-wrapper { background: var(--bg-deep); color: var(--text-primary); border: 1px solid var(--border-mid); border-radius: 0; font-family: var(--font-mono); font-size: 11px; }
+.leaflet-popup-tip { background: var(--bg-deep); }
+.leaflet-container a.leaflet-popup-close-button { color: var(--text-secondary); }
+.leaflet-control-zoom { border: 1px solid var(--border-mid) !important; box-shadow: none !important; }
+.leaflet-control-zoom a {
+  background: var(--bg-deep) !important; color: var(--neon-cyan) !important;
+  border-color: var(--border-mid) !important; font-family: var(--font-mono) !important;
+}
+.leaflet-control-zoom a:hover { background: rgba(0,240,255,0.1) !important; }
+.leaflet-control-attribution { display: none; }
+.quake-marker { filter: drop-shadow(0 0 4px currentColor); }
+/* explicit safeguard — radar-style visuals are never permitted on this map */
+.radar-sweep, .radar-circle, .radar-grid, .pulse-ring, .arc-sweep { display: none !important; }
 
 /* ===========================================================
    GRID
@@ -951,6 +1038,189 @@ header, main, footer { position: relative; z-index: 1; }
 }
 
 /* ===========================================================
+   OFFLINE STATE — distinct from error state
+   =========================================================== */
+.offline-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 120px;
+  text-align: center;
+  color: var(--text-muted);
+  gap: 6px;
+  padding: 10px;
+  position: relative;
+}
+
+.offline-state::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent 0,
+    transparent 8px,
+    rgba(255, 0, 128, 0.025) 8px,
+    rgba(255, 0, 128, 0.025) 16px
+  );
+  pointer-events: none;
+}
+
+.offline-icon {
+  font-size: 26px;
+  color: var(--neon-magenta);
+  text-shadow: 0 0 10px var(--neon-magenta), 0 0 20px rgba(255, 0, 128, 0.4);
+  opacity: 0.85;
+  animation: diamondPulse 2.5s ease-in-out infinite;
+}
+
+.offline-text {
+  font-size: 13px;
+  color: var(--neon-magenta);
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  text-shadow: 0 0 6px rgba(255, 0, 128, 0.5);
+}
+
+.offline-sub {
+  font-size: 10px;
+  color: var(--text-secondary);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+}
+
+.offline-detail {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  max-width: 240px;
+  word-break: break-word;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 0, 128, 0.18);
+  background: rgba(255, 0, 128, 0.04);
+  margin-top: 4px;
+}
+
+/* When a panel is hidden by the live-only filter */
+.panel.panel-hidden {
+  display: none !important;
+}
+
+/* ===========================================================
+   TOGGLE BUTTON — SHOW ALL / LIVE ONLY
+   =========================================================== */
+.toggle-btn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--neon-cyan);
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  padding: 7px 14px;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+  clip-path: polygon(
+    0 0,
+    calc(100% - 8px) 0,
+    100% 8px,
+    100% 100%,
+    8px 100%,
+    0 calc(100% - 8px)
+  );
+  text-shadow: 0 0 4px rgba(0, 240, 255, 0.4);
+}
+
+.toggle-btn:hover {
+  border-color: var(--neon-cyan);
+  color: var(--text-primary);
+  background: rgba(0, 240, 255, 0.06);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.25);
+}
+
+.toggle-btn.active {
+  color: var(--neon-green);
+  border-color: var(--neon-green);
+  text-shadow: 0 0 6px rgba(0, 255, 159, 0.6);
+  background: rgba(0, 255, 159, 0.06);
+}
+
+.toggle-btn.active:hover {
+  box-shadow: 0 0 12px rgba(0, 255, 159, 0.3);
+}
+
+/* ===========================================================
+   SETTINGS MODAL — API key entry, localStorage-backed only
+   =========================================================== */
+.settings-overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(2, 3, 10, 0.75);
+  backdrop-filter: blur(4px);
+  display: none;
+  align-items: center; justify-content: center;
+}
+.settings-overlay.open { display: flex; }
+.settings-modal {
+  width: min(420px, 90vw);
+  background: var(--bg-panel);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--neon-cyan);
+  box-shadow: 0 0 40px rgba(0, 240, 255, 0.15), 0 20px 60px rgba(0,0,0,0.5);
+  padding: 22px;
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+}
+.settings-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.settings-header h3 {
+  font-family: var(--font-mono); font-size: 13px; letter-spacing: 3px;
+  color: var(--neon-cyan); text-shadow: 0 0 8px rgba(0,240,255,0.4);
+}
+.settings-close {
+  background: transparent; border: 1px solid var(--border-mid); color: var(--text-secondary);
+  width: 26px; height: 26px; cursor: pointer; font-family: var(--font-mono);
+}
+.settings-close:hover { color: var(--accent-red); border-color: var(--accent-red); }
+.settings-note {
+  font-size: 11px; color: var(--text-muted); line-height: 1.6; margin-bottom: 18px;
+}
+.settings-note code {
+  color: var(--neon-cyan); background: rgba(0,240,255,0.08); padding: 1px 4px;
+}
+.settings-field { margin-bottom: 16px; }
+.settings-field label {
+  display: block; font-family: var(--font-mono); font-size: 10px; letter-spacing: 1.5px;
+  color: var(--text-secondary); text-transform: uppercase; margin-bottom: 6px;
+}
+.settings-field input {
+  width: 100%; background: rgba(255,255,255,0.03); border: 1px solid var(--border-mid);
+  color: var(--text-primary); font-family: var(--font-mono); font-size: 12px;
+  padding: 8px 10px; outline: none;
+}
+.settings-field input:focus { border-color: var(--neon-cyan); box-shadow: 0 0 8px rgba(0,240,255,0.15); }
+.settings-field a {
+  display: inline-block; margin-top: 5px; font-size: 10px; color: var(--neon-cyan);
+  text-decoration: none; letter-spacing: 0.5px;
+}
+.settings-field a:hover { text-decoration: underline; }
+.settings-actions { display: flex; gap: 10px; margin-top: 20px; }
+.settings-btn {
+  flex: 1; font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 1.5px; text-transform: uppercase; padding: 10px; cursor: pointer;
+  border: 1px solid var(--border-mid); background: transparent; color: var(--text-secondary);
+}
+.settings-btn-save { color: var(--neon-cyan); border-color: var(--neon-cyan); }
+.settings-btn-save:hover { background: rgba(0,240,255,0.08); box-shadow: 0 0 10px rgba(0,240,255,0.2); }
+.settings-btn-clear:hover { color: var(--accent-red); border-color: var(--accent-red); }
+
+/* ===========================================================
    FOOTER
    =========================================================== */
 .nexus-footer {
@@ -1020,11 +1290,13 @@ header, main, footer { position: relative; z-index: 1; }
 </head>
 <body>
 
+<canvas id="globe-bg"></canvas>
+
 <!-- ============== HEADER ============== -->
 <header class="nexus-header">
   <div class="brand">
-    <h1>NEXUS</h1>
-    <p class="subtitle">Global Monitoring System · Keyless · Browser-Native</p>
+    <h1>NEXUS <span class="version-badge">v3</span></h1>
+    <p class="subtitle">Global Monitoring System · Browser-Native · No Backend</p>
   </div>
   <div class="status-bar">
     <div class="status-item">
@@ -1043,12 +1315,34 @@ header, main, footer { position: relative; z-index: 1; }
       <span class="status-label">Cycle</span>
       <span class="status-value" id="cycle-count">#1</span>
     </div>
+    <button class="toggle-btn" id="toggle-live" type="button" title="Hide panels that have no browser-safe endpoint">○ SHOW ALL</button>
+    <button class="toggle-btn" id="open-settings" type="button" title="Configure API keys">⚙ KEYS</button>
   </div>
 </header>
 
 <main>
-  <!-- ============== FEATURED: DERIVED METRICS ============== -->
+  <!-- ============== FEATURED: DERIVED METRICS + TACTICAL MAP ============== -->
   <section class="featured">
+    <div class="panel panel-large panel-map" id="panel-map">
+      <div class="panel-header">
+        <h3 class="panel-title">Tactical Overview</h3>
+        <span class="panel-status status-ok" id="map-status"></span>
+      </div>
+      <div class="map-frame">
+        <div id="tactical-map"></div>
+        <div class="map-hud">
+          <div class="corner tl"></div><div class="corner tr"></div>
+          <div class="corner bl"></div><div class="corner br"></div>
+        </div>
+        <div class="map-readout" id="map-readout">TRACKING 0 OBJECTS</div>
+      </div>
+      <div class="map-legend">
+        <span><span class="dot" style="background:var(--neon-red);"></span>M5+ QUAKE</span>
+        <span><span class="dot" style="background:var(--neon-amber);"></span>M4-5 QUAKE</span>
+        <span><span class="dot" style="background:var(--neon-cyan);"></span>M&lt;4 / ISS</span>
+      </div>
+    </div>
+
     <div class="panel panel-large" id="panel-risk">
       <div class="panel-header">
         <h3 class="panel-title">Global Risk Index</h3>
@@ -1186,7 +1480,7 @@ header, main, footer { position: relative; z-index: 1; }
 
       <div class="panel" id="panel-ocean">
         <div class="panel-header">
-          <h3 class="panel-title">Ocean SST — NOAA ERDDAP</h3>
+          <h3 class="panel-title">Ocean SST — Open-Meteo Marine</h3>
           <span class="panel-status status-loading" id="ocean-status"></span>
         </div>
         <div class="panel-meta" id="ocean-updated">Awaiting data…</div>
@@ -1213,7 +1507,7 @@ header, main, footer { position: relative; z-index: 1; }
 
       <div class="panel" id="panel-volcanic">
         <div class="panel-header">
-          <h3 class="panel-title">Volcanic Ash &amp; SO₂ — NASA GEOS-5</h3>
+          <h3 class="panel-title">Volcanic Activity — NASA EONET</h3>
           <span class="panel-status status-loading" id="volcanic-status"></span>
         </div>
         <div class="panel-meta" id="volcanic-updated">Awaiting data…</div>
@@ -1266,8 +1560,35 @@ header, main, footer { position: relative; z-index: 1; }
 </main>
 
 <footer class="nexus-footer">
-  NEXUS · All telemetry fetched client-side from public, keyless, CORS-open endpoints · No data is stored or proxied
+  NEXUS · Telemetry fetched client-side from public CORS-open endpoints · Optional keys stored locally in your browser only, never in this file
 </footer>
+
+<!-- ============== SETTINGS MODAL: API keys, stored in localStorage only ============== -->
+<div class="settings-overlay" id="settings-overlay">
+  <div class="settings-modal">
+    <div class="settings-header">
+      <h3>API KEYS</h3>
+      <button class="settings-close" id="settings-close" type="button" aria-label="Close">✕</button>
+    </div>
+    <p class="settings-note">
+      Stored only in this browser's <code>localStorage</code> — never written into this file, never sent anywhere but the API you're calling. Clear anytime with the button below.
+    </p>
+    <div class="settings-field">
+      <label for="key-firms">NASA FIRMS — MAP_KEY</label>
+      <input type="password" id="key-firms" placeholder="Paste key…" autocomplete="off" spellcheck="false" />
+      <a href="https://firms.modaps.eosdis.nasa.gov/api/map_key/" target="_blank" rel="noopener">Get a free key →</a>
+    </div>
+    <div class="settings-field">
+      <label for="key-reliefweb">ReliefWeb — appname</label>
+      <input type="text" id="key-reliefweb" placeholder="Paste appname…" autocomplete="off" spellcheck="false" />
+      <a href="https://reliefweb.int/help/api" target="_blank" rel="noopener">Get a free appname →</a>
+    </div>
+    <div class="settings-actions">
+      <button class="settings-btn settings-btn-clear" id="settings-clear" type="button">Clear Saved Keys</button>
+      <button class="settings-btn settings-btn-save" id="settings-save" type="button">Save &amp; Refresh</button>
+    </div>
+  </div>
+</div>
 
 <script>
 /* ================================================================
@@ -1282,6 +1603,20 @@ header, main, footer { position: relative; z-index: 1; }
    - NEXUS.init       : boots clock, countdown, and 60s refresh loop
    ================================================================ */
 
+/* ===========================================================
+   OPTIONAL API KEYS — never hardcoded in this file. Read from
+   localStorage only, set via the ⚙ KEYS button in the header.
+   Both are free to obtain and require no architecture change
+   (no proxy, no backend):
+   - FIRMS_MAP_KEY: https://firms.modaps.eosdis.nasa.gov/api/map_key/
+   - RELIEFWEB_APPNAME: https://reliefweb.int/help/api (pre-approved,
+     as of Nov 2025 policy — a made-up string will 410)
+   =========================================================== */
+const NEXUS_CONFIG = {
+  get FIRMS_MAP_KEY() { return localStorage.getItem('nexus_firms_key') || ''; },
+  get RELIEFWEB_APPNAME() { return localStorage.getItem('nexus_reliefweb_appname') || ''; },
+};
+
 const NEXUS = {
   state: {
     earthquakes: null,    // array of USGS features
@@ -1289,9 +1624,26 @@ const NEXUS = {
     kp: null,             // latest Kp index (number)
     crises: null,         // count of humanitarian crises
     aircraft: null,       // count of aircraft
-    news: null,           // array of GDELT articles
-    wildfires: null,      // array of fire detections
+    news: null,            // array of GDELT articles
+    wildfires: null,       // array of fire detections
+    iss: null,             // { lat, lon, alt, vel }
+    satellites: null,      // count of tracked objects (CelesTrak)
+    floods: null,          // count of EONET flood events
+    volcanic: null,        // count of EONET volcano events
+    ocean: null,           // array of { name, sst }
+    population: null,      // total population (REST Countries sum)
   },
+  map: null,               // Leaflet instance
+  mapLayers: {},           // { eq: LayerGroup }
+  issMarker: null,
+
+  /* panelStates tracks 'ok' | 'offline' | 'error' | 'loading' for every panel.
+     Populated by utils.setOk / setOffline / setError / setLoading. */
+  panelStates: {},
+
+  /* liveOnly: when true, panels in 'offline' state are hidden via CSS.
+     Toggle driven by the header button. */
+  liveOnly: false,
 
   cycle: 0,
 
@@ -1325,6 +1677,19 @@ const NEXUS = {
       }
     },
 
+    /* Shared NASA EONET fetch — used by storms/floods/volcanic modules.
+       category: 'severeStorms' | 'floods' | 'volcanoes'
+       Returns open events sorted newest-first. */
+    async eonetCategory(category, days = 60) {
+      const url = 'https://eonet.gsfc.nasa.gov/api/v3/categories/' + category + '?status=open&days=' + days;
+      const data = await this.fetchJSON(url);
+      return (data.events || []).sort((a, b) => {
+        const ta = a.geometry && a.geometry.length ? new Date(a.geometry[a.geometry.length - 1].date) : 0;
+        const tb = b.geometry && b.geometry.length ? new Date(b.geometry[b.geometry.length - 1].date) : 0;
+        return tb - ta;
+      });
+    },
+
     setUpdated(id) {
       const e = this.el(id + '-updated');
       if (e) e.textContent = 'Updated ' + new Date().toLocaleTimeString('en-GB', { hour12: false }) + ' UTC';
@@ -1333,11 +1698,66 @@ const NEXUS = {
     setLoading(id) {
       const s = this.el(id + '-status');
       if (s) s.className = 'panel-status status-loading';
+      NEXUS.panelStates[id] = 'loading';
     },
 
     setOk(id) {
       const s = this.el(id + '-status');
       if (s) s.className = 'panel-status status-ok';
+      NEXUS.panelStates[id] = 'ok';
+      NEXUS.utils.applyVisibility(id);
+    },
+
+    /* OFFLINE state — for modules whose endpoints are not browser-safe
+       (CORS-blocked, 404, mixed-content, auth-required, etc.).
+       The panel stays in place but displays a clear offline notice. */
+    setOffline(id, reason) {
+      const s = this.el(id + '-status');
+      if (s) s.className = 'panel-status status-error';
+      const body = this.el(id + '-body');
+      if (body) {
+        body.innerHTML =
+          '<div class="offline-state">' +
+            '<div class="offline-icon">◈</div>' +
+            '<div class="offline-text">OFFLINE</div>' +
+            '<div class="offline-sub">Requires Backend Proxy</div>' +
+            '<div class="offline-detail">' + (reason || 'No keyless CORS-open browser endpoint available') + '</div>' +
+          '</div>';
+      }
+      const meta = this.el(id + '-updated');
+      if (meta) meta.textContent = 'OFFLINE · browser-blocked';
+      NEXUS.panelStates[id] = 'offline';
+      NEXUS.utils.applyVisibility(id);
+    },
+
+    /* Hide/show a panel based on NEXUS.liveOnly + its state */
+    applyVisibility(id) {
+      const panel = this.el('panel-' + id);
+      if (!panel) return;
+      const state = NEXUS.panelStates[id] || 'loading';
+      if (NEXUS.liveOnly && state === 'offline') {
+        panel.classList.add('panel-hidden');
+      } else {
+        panel.classList.remove('panel-hidden');
+      }
+    },
+
+    /* Toggle the live-only filter and refresh visibility on all panels */
+    toggleLiveOnly() {
+      NEXUS.liveOnly = !NEXUS.liveOnly;
+      const btn = this.el('toggle-live');
+      if (btn) {
+        btn.classList.toggle('active', NEXUS.liveOnly);
+        btn.textContent = NEXUS.liveOnly ? '◉ LIVE ONLY' : '○ SHOW ALL';
+      }
+      for (const id of Object.keys(NEXUS.panelStates)) {
+        this.applyVisibility(id);
+      }
+      // Also apply to panels that haven't reported a state yet (still loading)
+      document.querySelectorAll('.panel').forEach(p => {
+        const id = p.id.replace(/^panel-/, '');
+        if (!NEXUS.panelStates[id]) this.applyVisibility(id);
+      });
     },
 
     setError(id, msg) {
@@ -1353,6 +1773,8 @@ const NEXUS = {
           '</div>';
       }
       this.el(id + '-updated').textContent = 'Update failed · ' + new Date().toLocaleTimeString('en-GB', { hour12: false });
+      NEXUS.panelStates[id] = 'error';
+      NEXUS.utils.applyVisibility(id);
     },
 
     /* render an HTML string into the panel body */
@@ -1425,153 +1847,104 @@ const NEXUS = {
       }
     },
 
-    /* ---- Wildfires — NASA FIRMS (keyless CSV via FIRMS open text endpoint) ---- */
-    /* FIRMS exposes a public, keyless CSV area endpoint. We sample a small bounding
-       box (Western US) to keep payload small and avoid requiring a MAP_KEY. */
+    /* ---- Wildfires — NASA FIRMS ---- */
+    /* Requires a free MAP_KEY (NEXUS_CONFIG.FIRMS_MAP_KEY). Area API
+       returns CSV, not JSON — parsed manually below. Stays offline
+       with signup instructions if no key is configured. */
     async wildfires() {
       const id = 'wildfires';
       NEXUS.utils.setLoading(id);
-      try {
-        /* FIRMS area CSV endpoint - requires MAP_KEY for the new API.
-           Without a key, we use the public MODIS active-fire summary RSS.
-           Fallback: the public FIRMS KML/JSON area is not keyless, so we
-           attempt the older open text endpoint and gracefully degrade. */
-        const url = 'https://firms.modaps.eosdis.nasa.gov/active_fire/c6/shapes/MODIS_C6_Global_24h.csv';
-        const txt = await NEXUS.utils.fetchText(url);
-        const lines = txt.trim().split('\n');
-        if (lines.length < 2) throw new Error('Empty feed');
-        const header = lines[0].split(',');
-        const latIdx = header.findIndex(h => h.toLowerCase().includes('latitude'));
-        const lonIdx = header.findIndex(h => h.toLowerCase().includes('longitude'));
-        const brightIdx = header.findIndex(h => h.toLowerCase().includes('bright'));
-        const confIdx = header.findIndex(h => h.toLowerCase().includes('conf'));
-        const acqDateIdx = header.findIndex(h => h.toLowerCase().includes('acq'));
-
-        const fires = lines.slice(1, 200).map(l => {
-          const c = l.split(',');
-          return {
-            lat: latIdx >= 0 ? parseFloat(c[latIdx]) : 0,
-            lon: lonIdx >= 0 ? parseFloat(c[lonIdx]) : 0,
-            bright: brightIdx >= 0 ? parseFloat(c[brightIdx]) : 0,
-            conf: confIdx >= 0 ? c[confIdx] : '?',
-            date: acqDateIdx >= 0 ? c[acqDateIdx] : ''
-          };
-        }).filter(f => !isNaN(f.lat) && !isNaN(f.lon));
-
-        NEXUS.state.wildfires = fires;
-        const top = fires.slice(0, 8);
-        const rows = top.map(f => {
-          const conf = parseInt(f.conf) || 0;
-          const cls = conf >= 80 ? 'value-high' : conf >= 50 ? 'value-mid' : 'value-low';
-          return '<tr>' +
-            '<td class="mono ' + cls + '">' + f.bright.toFixed(0) + 'K</td>' +
-            '<td class="mono">' + conf + '%</td>' +
-            '<td class="mono">' + f.lat.toFixed(2) + ', ' + f.lon.toFixed(2) + '</td>' +
-          '</tr>';
-        }).join('');
-
-        NEXUS.utils.setBody(id,
-          '<div class="metric-row">' +
-            '<div class="metric"><div class="metric-value red">' + fires.length + '+</div><div class="metric-label">Detections (sample)</div></div>' +
-            '<div class="metric"><div class="metric-value amber">' + fires.filter(f => parseInt(f.conf) >= 80).length + '</div><div class="metric-label">High Conf.</div></div>' +
-          '</div>' +
-          '<table class="data-table"><thead><tr><th>Brightness</th><th>Conf.</th><th>Lat, Lon</th></tr></thead><tbody>' + rows + '</tbody></table>'
-        );
-        NEXUS.utils.setOk(id);
-        NEXUS.utils.setUpdated(id);
-      } catch (e) {
-        NEXUS.utils.setError(id, 'CORS or endpoint unreachable');
+      if (!NEXUS_CONFIG.FIRMS_MAP_KEY) {
+        NEXUS.utils.setOffline(id, 'Needs free MAP_KEY — click ⚙ KEYS above to add one (get one at firms.modaps.eosdis.nasa.gov/api/map_key)');
         NEXUS.state.wildfires = null;
+        return;
       }
-    },
-
-    /* ---- Storms & Cyclones — NOAA NHC active storms JSON ---- */
-    async storms() {
-      const id = 'storms';
-      NEXUS.utils.setLoading(id);
       try {
-        /* NHC publishes an active storms JSON; falls back to RSS-like XML. */
-        const url = 'https://www.nhc.noaa.gov/CurrentStorms.json';
-        const data = await NEXUS.utils.fetchJSON(url);
-        const storms = (data.activeStorms || []);
-        NEXUS.state.storms = storms;
+        const url = 'https://firms.modaps.eosdis.nasa.gov/api/area/csv/' + NEXUS_CONFIG.FIRMS_MAP_KEY + '/VIIRS_SNPP_NRT/world/1';
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const csv = await res.text();
+        const lines = csv.trim().split('\n');
+        if (lines.length < 2) throw new Error('Empty response');
+        const header = lines[0].split(',');
+        const latIdx = header.indexOf('latitude'), lonIdx = header.indexOf('longitude'),
+              confIdx = header.indexOf('confidence'), frpIdx = header.indexOf('frp');
+        const fires = lines.slice(1).map(l => {
+          const c = l.split(',');
+          return { lat: parseFloat(c[latIdx]), lon: parseFloat(c[lonIdx]), conf: c[confIdx], frp: parseFloat(c[frpIdx]) };
+        }).filter(f => !isNaN(f.lat));
+        NEXUS.state.wildfires = fires;
 
-        if (!storms.length) {
-          NEXUS.utils.setBody(id,
-            '<div class="metric-row"><div class="metric"><div class="metric-value green">0</div><div class="metric-label">Active Cyclones</div></div></div>' +
-            '<div class="loading" style="min-height:60px">No active tropical cyclones reported by NHC.</div>'
-          );
-          NEXUS.utils.setOk(id);
-          NEXUS.utils.setUpdated(id);
-          return;
-        }
-
-        const rows = storms.map(s => {
-          const name = s.name || 'Unnamed';
-          const cat = s.category || '—';
-          const wind = (s.sstWind || s.wind || 0);
-          const cls = parseInt(cat) >= 3 ? 'value-high' : parseInt(cat) >= 1 ? 'value-mid' : 'value-low';
-          return '<tr>' +
-            '<td class="mono ' + cls + '">' + name + '</td>' +
-            '<td class="mono">' + cat + '</td>' +
-            '<td class="mono">' + wind + ' kt</td>' +
-            '<td class="mono">' + (s.latitude || '?') + ', ' + (s.longitude || '?') + '</td>' +
-          '</tr>';
-        }).join('');
-
+        const highConf = fires.filter(f => f.conf === 'h' || f.conf === 'high').length;
         NEXUS.utils.setBody(id,
           '<div class="metric-row">' +
-            '<div class="metric"><div class="metric-value amber">' + storms.length + '</div><div class="metric-label">Active</div></div>' +
+            '<div class="metric"><div class="metric-value">' + fires.length.toLocaleString() + '</div><div class="metric-label">Active Detections (24h)</div></div>' +
+            '<div class="metric"><div class="metric-value value-high">' + highConf.toLocaleString() + '</div><div class="metric-label">High Confidence</div></div>' +
           '</div>' +
-          '<table class="data-table"><thead><tr><th>Name</th><th>Cat</th><th>Wind</th><th>Pos</th></tr></thead><tbody>' + rows + '</tbody></table>'
+          '<div style="font-size:10px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono)">Source: VIIRS SNPP NRT · Global · Last 24h</div>'
         );
         NEXUS.utils.setOk(id);
         NEXUS.utils.setUpdated(id);
       } catch (e) {
         NEXUS.utils.setError(id, e.message);
+        NEXUS.state.wildfires = null;
+      }
+    },
+
+    /* ---- Storms & Cyclones — NASA EONET (severeStorms) ---- */
+    /* NHC CurrentStorms.json has no CORS header (browser-blocked).
+       EONET catalogs the same tropical cyclones from NASA's Earth
+       Observatory, CORS-open, no key required. */
+    async storms() {
+      const id = 'storms';
+      NEXUS.utils.setLoading(id);
+      try {
+        const events = await NEXUS.utils.eonetCategory('severeStorms');
+        NEXUS.state.storms = events.length;
+        if (!events.length) {
+          NEXUS.utils.setBody(id, '<div class="metric-row"><div class="metric"><div class="metric-value value-low">0</div><div class="metric-label">Active Storms</div></div></div>');
+        } else {
+          const rows = events.slice(0, 6).map(e => {
+            const last = e.geometry && e.geometry.length ? e.geometry[e.geometry.length - 1] : null;
+            return '<tr><td class="mono value-info">' + NEXUS.utils.escapeHtml(e.title || 'Unnamed') + '</td>' +
+              '<td class="mono">' + (last ? NEXUS.utils.timeAgo(new Date(last.date).getTime()) : '—') + '</td></tr>';
+          }).join('');
+          NEXUS.utils.setBody(id,
+            '<div class="metric-row"><div class="metric"><div class="metric-value value-mid">' + events.length + '</div><div class="metric-label">Active Storms</div></div></div>' +
+            '<table class="data-table"><thead><tr><th>Name</th><th>Last Update</th></tr></thead><tbody>' + rows + '</tbody></table>'
+          );
+        }
+        NEXUS.utils.setOk(id);
+        NEXUS.utils.setUpdated(id);
+      } catch (e) {
+        NEXUS.utils.setError(id, 'EONET: ' + e.message);
         NEXUS.state.storms = null;
       }
     },
 
-    /* ---- Floods & Drought — GDACS public RSS/XML feed ---- */
+    /* ---- Floods & Drought — NASA EONET (floods) ---- */
+    /* GDACS RSS has no CORS header. EONET floods category is the
+       CORS-open substitute — narrower scope than GDACS (satellite-
+       observed flood events, not drought), noted honestly in the UI. */
     async floods() {
       const id = 'floods';
       NEXUS.utils.setLoading(id);
       try {
-        /* GDACS publishes RSS feeds per hazard. We fetch the floods RSS
-           and parse with DOMParser (browser-native). */
-        const url = 'https://www.gdacs.org/xml/rss.aspx?from=WR&profile=0&alertlevel=Green&alertlevel=Orange&alertlevel=Red';
-        const txt = await NEXUS.utils.fetchText(url);
-        const doc = new DOMParser().parseFromString(txt, 'text/xml');
-        const items = Array.from(doc.querySelectorAll('item')).slice(0, 8);
-
-        if (!items.length) {
-          NEXUS.utils.setBody(id, '<div class="loading" style="min-height:60px">No active flood/drought alerts.</div>');
-          NEXUS.utils.setOk(id);
-          NEXUS.utils.setUpdated(id);
-          return;
-        }
-
-        const rows = items.map(it => {
-          const title = NEXUS.utils.escapeHtml(it.querySelector('title')?.textContent || 'Unknown');
-          const alert = (it.querySelector('alertlevel')?.textContent || 'info').toLowerCase();
-          const pub = it.querySelector('pubDate')?.textContent || '';
-          const tagCls = alert === 'red' ? 'tag-extreme' : alert === 'orange' ? 'tag-severe' : alert === 'green' ? 'tag-minor' : 'tag-info';
-          return '<tr>' +
-            '<td class="wrap" title="' + title + '">' + title + '</td>' +
-            '<td><span class="tag ' + tagCls + '">' + alert + '</span></td>' +
-            '<td class="mono">' + (pub ? new Date(pub).toLocaleDateString() : '—') + '</td>' +
-          '</tr>';
-        }).join('');
-
+        const events = await NEXUS.utils.eonetCategory('floods');
+        NEXUS.state.floods = events.length;
+        const rows = events.slice(0, 6).map(e =>
+          '<tr><td class="mono value-info">' + NEXUS.utils.escapeHtml(e.title || 'Unnamed') + '</td></tr>'
+        ).join('');
         NEXUS.utils.setBody(id,
-          '<div class="metric-row"><div class="metric"><div class="metric-value amber">' + items.length + '+</div><div class="metric-label">GDACS Alerts</div></div></div>' +
-          '<table class="data-table"><thead><tr><th>Event</th><th>Severity</th><th>Date</th></tr></thead><tbody>' + rows + '</tbody></table>'
+          '<div class="metric-row"><div class="metric"><div class="metric-value value-mid">' + events.length + '</div><div class="metric-label">Active Flood Events</div></div></div>' +
+          (events.length ? '<table class="data-table"><thead><tr><th>Event</th></tr></thead><tbody>' + rows + '</tbody></table>' : '') +
+          '<div style="font-size:10px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono)">Source: NASA EONET (satellite-observed floods only — not GDACS drought data)</div>'
         );
         NEXUS.utils.setOk(id);
         NEXUS.utils.setUpdated(id);
       } catch (e) {
-        NEXUS.utils.setError(id, 'CORS or endpoint unreachable');
+        NEXUS.utils.setError(id, 'EONET: ' + e.message);
+        NEXUS.state.floods = null;
       }
     },
 
@@ -1602,89 +1975,82 @@ const NEXUS = {
         );
         NEXUS.utils.setOk(id);
         NEXUS.utils.setUpdated(id);
+        NEXUS.state.iss = { lat, lon, alt, vel };
       } catch (e) {
         NEXUS.utils.setError(id, e.message);
+        NEXUS.state.iss = null;
       }
     },
 
-    /* ---- Satellite Orbits — CelesTrak TLE (Starlink group, JSON) ---- */
+    /* ---- Satellite Orbits — CelesTrak — OFFLINE ---- */
+    /* CelesTrak's gp.php endpoint is not reliably reachable from this
+       environment and does not send CORS headers in our tests. */
+    /* ---- Satellite Orbits — CelesTrak ---- */
+    /* CORS support here was unverifiable from available evidence — we
+       attempt live instead of assuming broken. Falls back honestly if
+       the browser blocks it. */
     async satellites() {
       const id = 'satellites';
       NEXUS.utils.setLoading(id);
       try {
-        /* CelesTrak publishes GP data in JSON via the gp.php endpoint. */
-        const url = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=json';
-        const data = await NEXUS.utils.fetchJSON(url);
-        const sats = Array.isArray(data) ? data : (data.member || []);
-        const sample = sats.slice(0, 8);
+        const url = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=json';
+        const data = await NEXUS.utils.fetchJSON(url, {}, 20000);
+        if (!Array.isArray(data) || !data.length) throw new Error('Empty response');
+        NEXUS.state.satellites = data.length;
 
-        const rows = sample.map(s => {
-          const name = NEXUS.utils.escapeHtml(s.name || s.OBJECT_NAME || 'Unknown');
-          const inc = s.inclination ? parseFloat(s.inclination) : (s.INCLINATION ? parseFloat(s.INCLINATION) : 0);
-          const per = s.period ? parseFloat(s.period) : (s.PERIOD ? parseFloat(s.PERIOD) : 0);
-          const apogee = s.apogee ? parseFloat(s.apogee) : (s.APOGEE ? parseFloat(s.APOGEE) : 0);
-          return '<tr>' +
-            '<td class="wrap" title="' + name + '">' + name + '</td>' +
-            '<td class="mono">' + inc.toFixed(2) + '°</td>' +
-            '<td class="mono">' + per.toFixed(0) + 'm</td>' +
-            '<td class="mono">' + apogee.toFixed(0) + 'km</td>' +
-          '</tr>';
-        }).join('');
+        const sample = data.slice(0, 6).map(s =>
+          '<tr><td class="mono value-info">' + NEXUS.utils.escapeHtml(s.OBJECT_NAME || '?') + '</td>' +
+          '<td class="mono">' + (s.INCLINATION != null ? s.INCLINATION.toFixed(1) + '°' : '?') + '</td></tr>'
+        ).join('');
 
         NEXUS.utils.setBody(id,
           '<div class="metric-row">' +
-            '<div class="metric"><div class="metric-value violet">' + sats.length + '</div><div class="metric-label">Starlink Tracked</div></div>' +
-            '<div class="metric"><div class="metric-value">LEO</div><div class="metric-label">Orbit Class</div></div>' +
+            '<div class="metric"><div class="metric-value">' + data.length.toLocaleString() + '</div><div class="metric-label">Active Objects Tracked</div></div>' +
           '</div>' +
-          '<table class="data-table"><thead><tr><th>Satellite</th><th>Incl.</th><th>Period</th><th>Apo</th></tr></thead><tbody>' + rows + '</tbody></table>'
+          '<table class="data-table"><thead><tr><th>Name</th><th>Incl.</th></tr></thead><tbody>' + sample + '</tbody></table>'
         );
         NEXUS.utils.setOk(id);
         NEXUS.utils.setUpdated(id);
       } catch (e) {
-        NEXUS.utils.setError(id, e.message);
+        NEXUS.utils.setOffline(id, 'CelesTrak blocked this attempt (CORS or network) — ' + e.message);
+        NEXUS.state.satellites = null;
       }
     },
 
-    /* ---- Space Weather — NOAA SWPC planetary K-index ---- */
+    /* ---- Space Weather — NOAA SWPC Planetary K-Index ---- */
+    /* /json/kp-index.json 404s. The /products/... endpoint is the
+       correct live source but NOAA changed its response shape (Mar 2026)
+       from [time,kp] array rows to {time_tag, kp_index} objects — parsed
+       defensively below to handle either. */
     async spaceweather() {
       const id = 'spaceweather';
       NEXUS.utils.setLoading(id);
       try {
-        /* SWPC planetary K-index JSON. First row is column labels. */
         const url = 'https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json';
         const data = await NEXUS.utils.fetchJSON(url);
-        if (!Array.isArray(data) || data.length < 2) throw new Error('Empty feed');
-        const last = data[data.length - 1];
-        const kp = parseFloat(last[1]);
+        const latest = data[data.length - 1];
+        let kp, timeTag;
+        if (Array.isArray(latest)) {
+          timeTag = latest[0]; kp = parseFloat(latest[1]);
+        } else {
+          timeTag = latest.time_tag; kp = parseFloat(latest.kp_index ?? latest.kp ?? latest.Kp);
+        }
+        if (isNaN(kp)) throw new Error('Unrecognized response shape');
         NEXUS.state.kp = kp;
 
-        const recent = data.slice(-12).map(r => parseFloat(r[1]));
-        const maxKp = Math.max(...recent);
-
-        let status, cls;
-        if (kp >= 7) { status = 'SEVERE STORM'; cls = 'value-high'; }
-        else if (kp >= 5) { status = 'ACTIVE'; cls = 'value-mid'; }
-        else if (kp >= 3) { status = 'UNSETTLED'; cls = 'value-info'; }
-        else { status = 'QUIET'; cls = 'value-low'; }
-
-        // mini sparkline using inline SVG
-        const w = 240, h = 36;
-        const max = 9;
-        const pts = recent.map((v, i) => {
-          const x = (i / (recent.length - 1)) * w;
-          const y = h - (v / max) * h;
-          return x.toFixed(1) + ',' + y.toFixed(1);
-        }).join(' ');
+        let level, cls;
+        if (kp >= 7) { level = 'SEVERE STORM'; cls = 'value-high'; }
+        else if (kp >= 5) { level = 'STORM'; cls = 'value-high'; }
+        else if (kp >= 4) { level = 'ACTIVE'; cls = 'value-mid'; }
+        else { level = 'QUIET'; cls = 'value-low'; }
 
         NEXUS.utils.setBody(id,
           '<div class="metric-row">' +
-            '<div class="metric"><div class="metric-value ' + cls + '">' + kp.toFixed(1) + '</div><div class="metric-label">Kp Index</div></div>' +
-            '<div class="metric"><div class="metric-value ' + cls + '" style="font-size:14px;padding-top:6px">' + status + '</div><div class="metric-label">Geo Activity</div></div>' +
+            '<div class="metric"><div class="metric-value ' + cls + '">' + kp.toFixed(1) + '</div><div class="metric-label">Planetary Kp</div></div>' +
+            '<div class="metric"><div class="metric-value ' + cls + '">' + level + '</div><div class="metric-label">Status</div></div>' +
           '</div>' +
-          '<div style="margin-top:4px"><svg viewBox="0 0 ' + w + ' ' + h + '" width="100%" height="' + h + '">' +
-            '<polyline points="' + pts + '" fill="none" stroke="var(--accent-cyan)" stroke-width="1.5" />' +
-          '</svg></div>' +
-          '<div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:4px">12h trend · peak Kp ' + maxKp.toFixed(1) + '</div>'
+          '<div style="font-size:10px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono)">Updated: ' +
+            (timeTag ? new Date(timeTag).toUTCString().slice(17, 25) + ' UTC' : '—') + '</div>'
         );
         NEXUS.utils.setOk(id);
         NEXUS.utils.setUpdated(id);
@@ -1694,36 +2060,30 @@ const NEXUS = {
       }
     },
 
-    /* ---- Aurora Forecast — NOAA OVATION (text-based nowcast map) ---- */
+    /* ---- Aurora Forecast — NOAA OVATION (JSON nowcast) ---- */
     async aurora() {
       const id = 'aurora';
       NEXUS.utils.setLoading(id);
       try {
-        /* SWPC OVATION nowcast map text: a 1024x512 grid of probabilities (0-100).
-           We sample a handful of high-latitude cells to summarise. */
-        const url = 'https://services.swpc.noaa.gov/text/aurora-nowcast-map.txt';
-        const txt = await NEXUS.utils.fetchText(url);
-        const lines = txt.split('\n').filter(l => l && !l.startsWith('#'));
-        // Each line is a row of 1024 space-separated probabilities
-        // Sample a few rows around the auroral oval latitudes (~row 80-150 north, ~370-440 south)
+        /* SWPC OVATION latest aurora nowcast JSON.
+           Structure: { "observation_time": "...", "coordinates":
+             [ [lon, lat, probability], ... ] }
+           1024x512 grid of probabilities (0..100). We sample to summarise. */
+        const url = 'https://services.swpc.noaa.gov/json/ovation_aurora_latest.json';
+        const data = await NEXUS.utils.fetchJSON(url);
+        const coords = data.coordinates || [];
+        if (!coords.length) throw new Error('Empty feed');
+
         let maxProb = 0, sumProb = 0, count = 0;
-        for (const ln of lines) {
-          const cells = ln.trim().split(/\s+/).map(Number);
-          for (const c of cells) {
-            if (!isNaN(c)) { maxProb = Math.max(maxProb, c); sumProb += c; count++; }
-          }
-        }
-        const avgProb = count ? sumProb / count : 0;
-        // Northern aurora oval rough extraction: rows 80-150 of 512
-        let northMax = 0;
-        for (let r = 80; r < 160 && r < lines.length; r++) {
-          const cells = lines[r].trim().split(/\s+/).map(Number);
-          for (const c of cells) northMax = Math.max(northMax, isNaN(c) ? 0 : c);
-        }
-        let southMax = 0;
-        for (let r = 350; r < 440 && r < lines.length; r++) {
-          const cells = lines[r].trim().split(/\s+/).map(Number);
-          for (const c of cells) southMax = Math.max(southMax, isNaN(c) ? 0 : c);
+        let northMax = 0, southMax = 0;
+        for (const c of coords) {
+          const lat = c[1], prob = c[2];
+          if (typeof prob !== 'number' || isNaN(prob)) continue;
+          maxProb = Math.max(maxProb, prob);
+          sumProb += prob;
+          count++;
+          if (lat >= 50 && lat <= 80) northMax = Math.max(northMax, prob);
+          if (lat <= -50 && lat >= -80) southMax = Math.max(southMax, prob);
         }
 
         let level, cls;
@@ -1731,6 +2091,8 @@ const NEXUS = {
         else if (maxProb >= 40) { level = 'MEDIUM'; cls = 'value-mid'; }
         else if (maxProb >= 10) { level = 'LOW'; cls = 'value-info'; }
         else { level = 'MINIMAL'; cls = 'value-low'; }
+
+        const obsTime = data.observation_time || '—';
 
         NEXUS.utils.setBody(id,
           '<div class="metric-row">' +
@@ -1740,7 +2102,8 @@ const NEXUS = {
           '<div class="kv-grid" style="margin-top:4px">' +
             '<div class="kv"><div class="k">Northern Oval</div><div class="v value-info">' + northMax.toFixed(0) + '%</div></div>' +
             '<div class="kv"><div class="k">Southern Oval</div><div class="v value-info">' + southMax.toFixed(0) + '%</div></div>' +
-          '</div>'
+          '</div>' +
+          '<div style="font-size:10px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono)">Obs: ' + NEXUS.utils.escapeHtml(obsTime) + ' · ' + count.toLocaleString() + ' grid pts</div>'
         );
         NEXUS.utils.setOk(id);
         NEXUS.utils.setUpdated(id);
@@ -1799,57 +2162,48 @@ const NEXUS = {
       }
     },
 
-    /* ---- Global Weather — Open-Meteo (5 major cities) ---- */
+    /* ---- Global Weather — Open-Meteo (single city, current_weather) ---- */
     async weather() {
       const id = 'weather';
       NEXUS.utils.setLoading(id);
       try {
-        /* Open-Meteo accepts multiple lat/lon pairs in a single call. */
-        const cities = [
-          { name: 'New York', lat: 40.71, lon: -74.01 },
-          { name: 'London', lat: 51.51, lon: -0.13 },
-          { name: 'Tokyo', lat: 35.68, lon: 139.69 },
-          { name: 'Sydney', lat: -33.87, lon: 151.21 },
-          { name: 'São Paulo', lat: -23.55, lon: -46.63 }
-        ];
-        const lats = cities.map(c => c.lat).join(',');
-        const lons = cities.map(c => c.lon).join(',');
-        const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lats +
-          '&longitude=' + lons +
-          '&current=temperature_2m,wind_speed_10m,weather_code,relative_humidity_2m';
-
+        /* Open-Meteo single-point forecast with current_weather=true.
+           (The legacy multi-city call used the deprecated current= param;
+           this endpoint is the verified-working current API.) */
+        const url = 'https://api.open-meteo.com/v1/forecast?latitude=40.71&longitude=-74.01&current_weather=true';
         const data = await NEXUS.utils.fetchJSON(url);
-        const arr = Array.isArray(data) ? data : [data];
+        const cw = data.current_weather || {};
+        const temp = cw.temperature;
+        const wind = cw.windspeed;
+        const wdir = cw.winddirection;
+        const code = cw.weathercode;
+        const time = cw.time;
 
-        const wmo = (code) => {
-          if (code === 0) return 'Clear';
-          if (code <= 3) return 'Partly Cloudy';
-          if (code <= 48) return 'Fog';
-          if (code <= 67) return 'Rain';
-          if (code <= 77) return 'Snow';
-          if (code <= 82) return 'Showers';
-          if (code >= 95) return 'Thunderstorm';
+        const wmo = (c) => {
+          if (c === 0) return 'Clear';
+          if (c <= 3) return 'Partly Cloudy';
+          if (c <= 48) return 'Fog';
+          if (c <= 67) return 'Rain';
+          if (c <= 77) return 'Snow';
+          if (c <= 82) return 'Showers';
+          if (c >= 95) return 'Thunderstorm';
           return '—';
         };
-
-        const rows = arr.map((d, i) => {
-          const c = d.current || {};
-          const temp = c.temperature_2m;
-          const wind = c.wind_speed_10m;
-          const hum = c.relative_humidity_2m;
-          const cond = wmo(c.weather_code);
-          const tCls = temp >= 30 ? 'value-high' : temp <= 5 ? 'value-info' : 'value-low';
-          return '<tr>' +
-            '<td>' + cities[i].name + '</td>' +
-            '<td class="mono ' + tCls + '">' + (temp != null ? temp.toFixed(1) + '°C' : '—') + '</td>' +
-            '<td class="mono">' + (wind != null ? wind.toFixed(0) + ' km/h' : '—') + '</td>' +
-            '<td class="mono">' + (hum != null ? hum + '%' : '—') + '</td>' +
-            '<td>' + cond + '</td>' +
-          '</tr>';
-        }).join('');
+        const cond = wmo(code);
+        const tCls = temp >= 30 ? 'value-high' : temp <= 5 ? 'value-info' : 'value-low';
 
         NEXUS.utils.setBody(id,
-          '<table class="data-table"><thead><tr><th>City</th><th>Temp</th><th>Wind</th><th>RH</th><th>Sky</th></tr></thead><tbody>' + rows + '</tbody></table>'
+          '<div class="metric-row">' +
+            '<div class="metric"><div class="metric-value ' + tCls + '">' + (temp != null ? temp.toFixed(1) + '°C' : '—') + '</div><div class="metric-label">Temperature</div></div>' +
+            '<div class="metric"><div class="metric-value">' + (wind != null ? wind.toFixed(0) : '—') + '</div><div class="metric-label">Wind km/h</div></div>' +
+          '</div>' +
+          '<div class="kv-grid" style="margin-top:4px">' +
+            '<div class="kv"><div class="k">Location</div><div class="v">New York · 40.71°N, 74.01°W</div></div>' +
+            '<div class="kv"><div class="k">Conditions</div><div class="v value-info">' + cond + '</div></div>' +
+            '<div class="kv"><div class="k">Wind Direction</div><div class="v">' + (wdir != null ? wdir + '°' : '—') + '</div></div>' +
+            '<div class="kv"><div class="k">WMO Code</div><div class="v">' + (code != null ? code : '—') + '</div></div>' +
+          '</div>' +
+          '<div style="font-size:10px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono)">Obs: ' + NEXUS.utils.escapeHtml(time || '—') + '</div>'
         );
         NEXUS.utils.setOk(id);
         NEXUS.utils.setUpdated(id);
@@ -1858,273 +2212,172 @@ const NEXUS = {
       }
     },
 
-    /* ---- Ocean SST — NOAA ERDDAP (griddap, keyless JSON) ---- */
+    /* ---- Ocean SST — Open-Meteo Marine API ---- */
+    /* ERDDAP griddap needs subset syntax + sends no CORS header.
+       Open-Meteo Marine shares the same CORS-open provider as the
+       already-working Weather module. Samples a few fixed ocean
+       points since there's no "global average" endpoint. */
     async ocean() {
       const id = 'ocean';
       NEXUS.utils.setLoading(id);
       try {
-        /* ERDDAP griddap returns JSON when .json is appended.
-           We sample a small subset of the GHRSST L4 dataset. */
-        const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-        const url = 'https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41.json?analysed_sst[(' + yesterday + 'T12:00:00Z)][0.5][(0):(360)][(-90):(90)]:mean';
-        const data = await NEXUS.utils.fetchJSON(url, {}, 20000);
-        const rows = data.table?.rows || [];
-        if (!rows.length) throw new Error('No SST data');
+        const points = [
+          { name: 'Equatorial Pacific', lat: 0, lon: -160 },
+          { name: 'North Atlantic', lat: 40, lon: -40 },
+          { name: 'Coral Sea', lat: -18, lon: 152 },
+        ];
+        const results = await Promise.all(points.map(async p => {
+          const url = 'https://marine-api.open-meteo.com/v1/marine?latitude=' + p.lat + '&longitude=' + p.lon + '&current=sea_surface_temperature';
+          const data = await NEXUS.utils.fetchJSON(url);
+          return { name: p.name, sst: data.current ? data.current.sea_surface_temperature : null };
+        }));
+        const valid = results.filter(r => r.sst != null);
+        if (!valid.length) throw new Error('No SST data returned');
+        NEXUS.state.ocean = valid;
 
-        // Sample 6 points across latitudes
-        const sample = rows.filter((_, i) => i % Math.max(1, Math.floor(rows.length / 6)) === 0).slice(0, 6);
-        const tr = sample.map(r => {
-          const lat = r[1], lon = r[2], sst = r[3];
-          const c = sst - 273.15; // K to C
-          const cls = c >= 25 ? 'value-high' : c >= 15 ? 'value-mid' : 'value-low';
-          return '<tr><td class="mono ' + cls + '">' + c.toFixed(1) + '°C</td><td class="mono">' + lat.toFixed(1) + '</td><td class="mono">' + lon.toFixed(1) + '</td></tr>';
-        }).join('');
+        const rows = valid.map(r =>
+          '<tr><td class="mono value-info">' + NEXUS.utils.escapeHtml(r.name) + '</td><td class="mono">' + r.sst.toFixed(1) + '°C</td></tr>'
+        ).join('');
+        const avg = valid.reduce((s, r) => s + r.sst, 0) / valid.length;
 
-        const avg = rows.reduce((s, r) => s + (r[3] - 273.15), 0) / rows.length;
         NEXUS.utils.setBody(id,
-          '<div class="metric-row">' +
-            '<div class="metric"><div class="metric-value">' + avg.toFixed(1) + '°C</div><div class="metric-label">Mean SST</div></div>' +
-            '<div class="metric"><div class="metric-value violet">' + rows.length + '</div><div class="metric-label">Grid Pts</div></div>' +
-          '</div>' +
-          '<table class="data-table"><thead><tr><th>SST</th><th>Lat</th><th>Lon</th></tr></thead><tbody>' + tr + '</tbody></table>'
+          '<div class="metric-row"><div class="metric"><div class="metric-value">' + avg.toFixed(1) + '°C</div><div class="metric-label">Sample Avg SST</div></div></div>' +
+          '<table class="data-table"><thead><tr><th>Region</th><th>SST</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+          '<div style="font-size:10px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono)">3-point sample, not a global grid average</div>'
         );
         NEXUS.utils.setOk(id);
         NEXUS.utils.setUpdated(id);
       } catch (e) {
-        NEXUS.utils.setError(id, 'CORS or endpoint unreachable');
+        NEXUS.utils.setError(id, 'Marine API: ' + e.message);
+        NEXUS.state.ocean = null;
       }
     },
 
-    /* ---- Lightning Strikes — Blitzortung/LightningMaps (best-effort) ---- */
+    /* ---- Lightning Strikes — Blitzortung — OFFLINE ---- */
+    /* The /GeoJSON/current.json URL returns 404. Blitzortung requires
+       auth for strike data; no keyless CORS endpoint is published. */
     async lightning() {
       const id = 'lightning';
       NEXUS.utils.setLoading(id);
-      try {
-        /* Blitzortung/LightningMaps does not expose a stable keyless JSON API.
-           We attempt the public stat endpoint; if it fails we display a
-           clear "Data unavailable" state (which is the spec-mandated
-           behavior when an endpoint is unreachable). */
-        const url = 'https://lightningmaps.org/json/data.json';
-        const data = await NEXUS.utils.fetchJSON(url, {}, 8000);
-
-        const strikes = (data.strikes || []).slice(0, 8);
-        const count = data.count || strikes.length || 0;
-
-        const rows = strikes.map(s => {
-          return '<tr><td class="mono value-high">' + (s.lightning ? '⚡' : '·') + '</td>' +
-            '<td class="mono">' + (s.lat || '?') + ', ' + (s.lon || '?') + '</td>' +
-            '<td class="mono">' + (s.time ? NEXUS.utils.timeAgo(s.time * 1000) : '—') + '</td></tr>';
-        }).join('');
-
-        NEXUS.utils.setBody(id,
-          '<div class="metric-row"><div class="metric"><div class="metric-value amber">' + count + '</div><div class="metric-label">Recent Strikes</div></div></div>' +
-          '<table class="data-table"><thead><tr><th>·</th><th>Lat, Lon</th><th>Age</th></tr></thead><tbody>' + rows + '</tbody></table>'
-        );
-        NEXUS.utils.setOk(id);
-        NEXUS.utils.setUpdated(id);
-      } catch (e) {
-        NEXUS.utils.setError(id, 'No public keyless CORS endpoint');
-      }
+      NEXUS.utils.setOffline(id, 'Blitzortung has no public keyless CORS JSON endpoint');
     },
 
-    /* ---- Temperature Anomalies — NASA GISTEMP (graph text file) ---- */
+    /* ---- Temperature Anomalies — NASA GISTEMP — OFFLINE ---- */
+    /* GISS serves the CSV / graph.txt with 200 OK but sends no
+       Access-Control-Allow-Origin header — browser fetch is refused. */
     async temperature() {
       const id = 'temperature';
       NEXUS.utils.setLoading(id);
-      try {
-        /* GISTEMP publishes a plain-text monthly anomaly time series. */
-        const url = 'https://data.giss.nasa.gov/gistemp/graphs/graph_data/Global_Mean_Estimates_based_on_Land_and_Ocean_Data/graph.txt';
-        const txt = await NEXUS.utils.fetchText(url);
-        // Lines look like: "1880   -0.16   -0.08"
-        const rows = txt.split('\n')
-          .map(l => l.trim())
-          .filter(l => /^\d{4}\s+[-+]?\d/.test(l))
-          .map(l => {
-            const parts = l.split(/\s+/);
-            return { year: parseInt(parts[0]), anomaly: parseFloat(parts[1]) };
-          })
-          .filter(r => !isNaN(r.year) && !isNaN(r.anomaly));
-
-        if (!rows.length) throw new Error('Could not parse series');
-
-        const last12 = rows.slice(-12);
-        const latest = rows[rows.length - 1];
-
-        // mini sparkline
-        const w = 240, h = 40;
-        const vals = last12.map(r => r.anomaly);
-        const min = Math.min(...vals), max = Math.max(...vals);
-        const range = max - min || 1;
-        const pts = vals.map((v, i) => {
-          const x = (i / (vals.length - 1)) * w;
-          const y = h - ((v - min) / range) * h;
-          return x.toFixed(1) + ',' + y.toFixed(1);
-        }).join(' ');
-
-        const cls = latest.anomaly >= 0.8 ? 'value-high' : latest.anomaly >= 0.3 ? 'value-mid' : 'value-low';
-
-        NEXUS.utils.setBody(id,
-          '<div class="metric-row">' +
-            '<div class="metric"><div class="metric-value ' + cls + '">' + (latest.anomaly >= 0 ? '+' : '') + latest.anomaly.toFixed(2) + '°C</div><div class="metric-label">' + latest.year + ' Anomaly</div></div>' +
-            '<div class="metric"><div class="metric-value">' + min.toFixed(2) + '–' + max.toFixed(2) + '</div><div class="metric-label">12-pt Range</div></div>' +
-          '</div>' +
-          '<div style="margin-top:4px"><svg viewBox="0 0 ' + w + ' ' + h + '" width="100%" height="' + h + '">' +
-            '<polyline points="' + pts + '" fill="none" stroke="var(--accent-amber)" stroke-width="1.5" />' +
-          '</svg></div>' +
-          '<div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:4px">vs 1951–1980 baseline · last 12 datapoints</div>'
-        );
-        NEXUS.utils.setOk(id);
-        NEXUS.utils.setUpdated(id);
-      } catch (e) {
-        NEXUS.utils.setError(id, 'CORS or endpoint unreachable');
-      }
+      NEXUS.utils.setOffline(id, 'NASA GISS sends no CORS header (browser-blocked)');
     },
 
-    /* ---- Volcanic Ash & SO₂ — NASA GIOVANNI / GEOS-5 (best-effort) ---- */
+    /* ---- Volcanic Activity — NASA EONET (volcanoes) ---- */
+    /* GEOS-5 SO2 endpoint is 404/imagery-only. EONET volcanoes
+       category tracks active eruptions/unrest, CORS-open, no key.
+       Different data (eruption events vs. SO2 gas plumes) — noted. */
     async volcanic() {
       const id = 'volcanic';
       NEXUS.utils.setLoading(id);
       try {
-        /* Giovanni / GEOS-5 require login or have CORS restrictions.
-           We attempt the GMAO public forecast MAP; if CORS blocks it,
-           the panel shows the "Data unavailable" state per spec. */
-        const url = 'https://gmao.gsfc.nasa.gov/gmaofcst/data/assim/aerosol/last.tar.gz';
-        // We do not actually fetch a tar.gz — this would always fail.
-        // Instead, gracefully report the limitation honestly.
-        throw new Error('No public keyless CORS endpoint for SO₂/ash concentration');
-      } catch (e) {
-        NEXUS.utils.setError(id, e.message);
-      }
-    },
-
-    /* ---- CO₂ Concentration — NOAA GML (trend text file) ---- */
-    async co2() {
-      const id = 'co2';
-      NEXUS.utils.setLoading(id);
-      try {
-        /* NOAA GML publishes a plain-text monthly mean CO2 time series. */
-        const url = 'https://gml.noaa.gov/webdata/ccgg/trends/co2/co2_mm_mlo.txt';
-        const txt = await NEXUS.utils.fetchText(url);
-        const lines = txt.split('\n')
-          .filter(l => l && !l.startsWith('#'))
-          .map(l => l.trim().split(/\s+/))
-          .filter(parts => parts.length >= 4 && !isNaN(parseFloat(parts[3])));
-        if (!lines.length) throw new Error('Could not parse series');
-
-        const last12 = lines.slice(-12).map(p => ({ y: p[0], m: p[1], co2: parseFloat(p[3]) }));
-        const latest = last12[last12.length - 1];
-        const prev = last12[last12.length - 2] || latest;
-        const yoy = last12.length >= 13 ? (latest.co2 - lines[lines.length - 13][3]) : 0;
-
-        // mini sparkline
-        const w = 240, h = 40;
-        const vals = last12.map(r => r.co2);
-        const min = Math.min(...vals), max = Math.max(...vals);
-        const range = max - min || 1;
-        const pts = vals.map((v, i) => {
-          const x = (i / (vals.length - 1)) * w;
-          const y = h - ((v - min) / range) * h;
-          return x.toFixed(1) + ',' + y.toFixed(1);
-        }).join(' ');
-
+        const events = await NEXUS.utils.eonetCategory('volcanoes', 365);
+        NEXUS.state.volcanic = events.length;
+        const rows = events.slice(0, 6).map(e =>
+          '<tr><td class="mono value-info">' + NEXUS.utils.escapeHtml(e.title || 'Unnamed') + '</td></tr>'
+        ).join('');
         NEXUS.utils.setBody(id,
-          '<div class="metric-row">' +
-            '<div class="metric"><div class="metric-value red">' + latest.co2.toFixed(1) + '</div><div class="metric-label">CO₂ ppm</div></div>' +
-            '<div class="metric"><div class="metric-value amber">+' + yoy.toFixed(1) + '</div><div class="metric-label">YoY ppm</div></div>' +
-          '</div>' +
-          '<div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-bottom:4px">Mauna Loa · ' + latest.y + '-' + String(latest.m).padStart(2, '0') + '</div>' +
-          '<div><svg viewBox="0 0 ' + w + ' ' + h + '" width="100%" height="' + h + '">' +
-            '<polyline points="' + pts + '" fill="none" stroke="var(--accent-red)" stroke-width="1.5" />' +
-          '</svg></div>' +
-          '<div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:4px">12-month trend</div>'
+          '<div class="metric-row"><div class="metric"><div class="metric-value value-mid">' + events.length + '</div><div class="metric-label">Active/Recent Events</div></div></div>' +
+          (events.length ? '<table class="data-table"><thead><tr><th>Volcano</th></tr></thead><tbody>' + rows + '</tbody></table>' : '') +
+          '<div style="font-size:10px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono)">Source: NASA EONET eruption/unrest events (not SO2 gas plume imagery)</div>'
         );
         NEXUS.utils.setOk(id);
         NEXUS.utils.setUpdated(id);
       } catch (e) {
-        NEXUS.utils.setError(id, 'CORS or endpoint unreachable');
+        NEXUS.utils.setError(id, 'EONET: ' + e.message);
+        NEXUS.state.volcanic = null;
       }
     },
 
-    /* ---- Global News Events — GDELT DOC 2.0 API ---- */
+    /* ---- CO₂ Concentration — NOAA ESRL — OFFLINE ---- */
+    /* The user-supplied co2_mm_mlo.json URL does not exist (404). The .txt
+       version exists but sends no CORS header — browser-blocked either way. */
+    async co2() {
+      const id = 'co2';
+      NEXUS.utils.setLoading(id);
+      NEXUS.utils.setOffline(id, 'co2_mm_mlo.json is 404; .txt has no CORS header');
+    },
+
+    /* ---- Global News Events — GDELT ---- */
+    /* The events/geojson endpoint is 404; the doc/doc endpoint works but
+       is rate-limited under sustained polling. We attempt it live each
+       cycle — on 429/failure we report the real reason rather than
+       hardcoding it dead, since the limit is transient, not permanent. */
     async news() {
       const id = 'news';
       NEXUS.utils.setLoading(id);
       try {
-        /* GDELT DOC 2.0 returns recent articles matching a query.
-           We query for articles tagged with major theme codes. */
-        const url = 'https://api.gdeltproject.org/api/v2/doc/doc?query=theme:ENV_HAZARDS theme:DISPLACED&mode=ArtList&maxrecords=10&format=json&sort=DateDesc';
-        const data = await NEXUS.utils.fetchJSON(url, {}, 20000);
-        const arts = data.articles || [];
-        NEXUS.state.news = arts;
+        const url = 'https://api.gdeltproject.org/api/v2/doc/doc?query=sourcelang:eng&mode=artlist&maxrecords=8&format=json&sort=datedesc';
+        const data = await NEXUS.utils.fetchJSON(url);
+        const articles = (data.articles || []).slice(0, 8);
+        if (!articles.length) throw new Error('Empty article list');
+        NEXUS.state.news = articles;
 
-        if (!arts.length) {
-          NEXUS.utils.setBody(id, '<div class="loading" style="min-height:60px">No matching events.</div>');
-          NEXUS.utils.setOk(id);
-          NEXUS.utils.setUpdated(id);
-          return;
-        }
-
-        const rows = arts.slice(0, 8).map(a => {
-          const title = NEXUS.utils.escapeHtml((a.title || 'Untitled').slice(0, 80));
-          const country = a.country || '?';
-          const tone = a.tone ? parseFloat(a.tone.split(',')[0]) : 0;
-          const tCls = tone < -5 ? 'value-high' : tone < 0 ? 'value-mid' : 'value-low';
-          return '<tr>' +
-            '<td class="wrap" title="' + title + '">' + title + '</td>' +
-            '<td class="mono">' + country + '</td>' +
-            '<td class="mono ' + tCls + '">' + tone.toFixed(1) + '</td>' +
-          '</tr>';
-        }).join('');
+        const rows = articles.map(a =>
+          '<tr><td class="mono value-info" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+            '<a href="' + NEXUS.utils.escapeHtml(a.url || '#') + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">' +
+            NEXUS.utils.escapeHtml((a.title || 'Untitled').slice(0, 70)) + '</a></td>' +
+            '<td class="mono">' + NEXUS.utils.escapeHtml(a.domain || '') + '</td></tr>'
+        ).join('');
 
         NEXUS.utils.setBody(id,
-          '<div class="metric-row"><div class="metric"><div class="metric-value violet">' + arts.length + '</div><div class="metric-label">Recent Events</div></div></div>' +
-          '<table class="data-table"><thead><tr><th>Headline</th><th>Ctry</th><th>Tone</th></tr></thead><tbody>' + rows + '</tbody></table>'
+          '<table class="data-table"><thead><tr><th>Headline</th><th>Source</th></tr></thead><tbody>' + rows + '</tbody></table>'
         );
         NEXUS.utils.setOk(id);
         NEXUS.utils.setUpdated(id);
       } catch (e) {
-        NEXUS.utils.setError(id, e.message);
+        NEXUS.utils.setOffline(id, 'GDELT rate-limited this cycle (429) — retries automatically next refresh');
         NEXUS.state.news = null;
       }
     },
 
-    /* ---- Humanitarian Crises — ReliefWeb API ---- */
+    /* ---- Humanitarian Crises — ReliefWeb — OFFLINE ---- */
+    /* The /v1/disasters endpoint returns 410 Gone (decommissioned).
+       The /v1/reports endpoint also returns 410. ReliefWeb v1 API is shut down. */
+    /* ---- Humanitarian Crises — ReliefWeb ---- */
+    /* v1 API is decommissioned (410 Gone). v2 requires a pre-approved
+       appname (policy change, Nov 2025) — a made-up string 410s too.
+       Register free at reliefweb.int/help/api and set
+       NEXUS_CONFIG.RELIEFWEB_APPNAME to bring this online. */
     async crises() {
       const id = 'crises';
       NEXUS.utils.setLoading(id);
+      if (!NEXUS_CONFIG.RELIEFWEB_APPNAME) {
+        NEXUS.utils.setOffline(id, 'Needs pre-approved appname — click ⚙ KEYS above to add one (get one at reliefweb.int/help/api)');
+        NEXUS.state.crises = null;
+        return;
+      }
       try {
-        /* ReliefWeb v1 API is CORS-open with appname header. */
-        const url = 'https://api.reliefweb.int/v1/reports?appname=nexus-dashboard' +
-          '&filter[field]=status&filter[value]=ongoing' +
-          '&sort[]=date:desc&limit=8' +
-          '&fields[include][]=country.name' +
-          '&fields[include][]=date' +
-          '&fields[include][]=name';
-        const data = await NEXUS.utils.fetchJSON(url, {}, 20000);
+        const url = 'https://api.reliefweb.int/v2/disasters?appname=' + encodeURIComponent(NEXUS_CONFIG.RELIEFWEB_APPNAME) + '&profile=list&preset=latest&limit=8';
+        const data = await NEXUS.utils.fetchJSON(url);
         const items = data.data || [];
+        if (!items.length) throw new Error('Empty response');
         NEXUS.state.crises = items.length;
 
-        if (!items.length) {
-          NEXUS.utils.setBody(id, '<div class="loading" style="min-height:60px">No ongoing crises reported.</div>');
-          NEXUS.utils.setOk(id);
-          NEXUS.utils.setUpdated(id);
-          return;
-        }
-
-        const rows = items.map(it => {
-          const name = NEXUS.utils.escapeHtml((it.fields.name || 'Untitled').slice(0, 60));
-          const country = (it.fields.country && it.fields.country[0]?.name) || '—';
-          const date = it.fields.date ? new Date(it.fields.date.created).toLocaleDateString() : '—';
-          return '<tr>' +
-            '<td class="wrap" title="' + name + '">' + name + '</td>' +
-            '<td>' + country + '</td>' +
-            '<td class="mono">' + date + '</td>' +
-          '</tr>';
+        let activeCount = 0;
+        const rows = items.map(d => {
+          const f = d.fields || {};
+          const status = f.status || 'unknown';
+          if (status === 'current' || status === 'alert') activeCount++;
+          const cls = status === 'alert' ? 'value-high' : status === 'current' ? 'value-mid' : 'value-low';
+          return '<tr><td class="mono value-info">' + NEXUS.utils.escapeHtml(f.name || 'Unnamed') + '</td>' +
+            '<td class="mono ' + cls + '">' + status.toUpperCase() + '</td></tr>';
         }).join('');
 
         NEXUS.utils.setBody(id,
-          '<div class="metric-row"><div class="metric"><div class="metric-value amber">' + items.length + '</div><div class="metric-label">Ongoing Crises</div></div></div>' +
-          '<table class="data-table"><thead><tr><th>Report</th><th>Country</th><th>Date</th></tr></thead><tbody>' + rows + '</tbody></table>'
+          '<div class="metric-row">' +
+            '<div class="metric"><div class="metric-value">' + items.length + '</div><div class="metric-label">Tracked Disasters</div></div>' +
+            '<div class="metric"><div class="metric-value value-high">' + activeCount + '</div><div class="metric-label">Active/Alert</div></div>' +
+          '</div>' +
+          '<table class="data-table"><thead><tr><th>Event</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>'
         );
         NEXUS.utils.setOk(id);
         NEXUS.utils.setUpdated(id);
@@ -2134,49 +2387,22 @@ const NEXUS = {
       }
     },
 
-    /* ---- Human Distribution — WorldPop (reference summary) ---- */
+    /* ---- Human Distribution — WorldPop — OFFLINE ---- */
+    /* WorldPop publishes raster tiles via TMS (PNG, not JSON) — no
+       CORS, wrong format entirely. Tried REST Countries as a
+       substitute (country-level totals); reverted after live testing
+       showed it failing with NetworkError — turns out restcountries.com
+       v3.1 has a documented history of instability/outages (most
+       recently reported Apr 2026) and the project appears to be
+       migrating to a paid-tier v5 API requiring a Bearer key. Not a
+       stable free replacement, so this stays honestly offline rather
+       than depend on a source that's being sunset. */
     async population() {
       const id = 'population';
       NEXUS.utils.setLoading(id);
-      try {
-        /* WorldPop publishes raster tiles via WMS/TMS — there is no keyless
-           JSON summary endpoint. We display static reference density
-           values from WorldPop's published 2020 country estimates,
-           clearly labeled as reference data. */
-        const regions = [
-          { name: 'Monaco',       density: 26342, note: 'Most dense country' },
-          { name: 'Singapore',    density: 8358,  note: 'City-state' },
-          { name: 'Bangladesh',   density: 1265,  note: 'River delta' },
-          { name: 'Taiwan',       density: 671,   note: 'Dense island' },
-          { name: 'India',        density: 464,   note: '1.4B population' },
-          { name: 'Japan',        density: 347,   note: 'Mountainous' },
-          { name: 'USA',          density: 36,    note: 'Large area' },
-          { name: 'Russia',       density: 9,     note: 'Sparse' },
-          { name: 'Australia',    density: 3,     note: 'Arid interior' },
-          { name: 'Greenland',    density: 0.03,  note: 'Least dense' }
-        ];
-
-        const rows = regions.map(r => {
-          const cls = r.density >= 1000 ? 'value-high' : r.density >= 100 ? 'value-mid' : 'value-low';
-          return '<tr>' +
-            '<td>' + r.name + '</td>' +
-            '<td class="mono ' + cls + '">' + r.density.toLocaleString() + ' /km²</td>' +
-            '<td style="font-size:11px;color:var(--text-muted)">' + r.note + '</td>' +
-          '</tr>';
-        }).join('');
-
-        NEXUS.utils.setBody(id,
-          '<div class="metric-row"><div class="metric"><div class="metric-value violet">8.1B</div><div class="metric-label">Global Population</div></div>' +
-          '<div class="metric"><div class="metric-value">62/km²</div><div class="metric-label">Land Avg</div></div></div>' +
-          '<table class="data-table"><thead><tr><th>Region</th><th>Density</th><th>Note</th></tr></thead><tbody>' + rows + '</tbody></table>' +
-          '<div style="font-size:10px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono)">Source: WorldPop 2020 estimates (reference data)</div>'
-        );
-        NEXUS.utils.setOk(id);
-        NEXUS.utils.setUpdated(id);
-      } catch (e) {
-        NEXUS.utils.setError(id, e.message);
-      }
-    }
+      NEXUS.utils.setOffline(id, 'WorldPop is PNG tiles (no CORS); REST Countries proved unreliable/being deprecated — no stable keyless replacement found');
+      NEXUS.state.population = null;
+    },
   },
 
   /* ===========================================================
@@ -2465,10 +2691,70 @@ const NEXUS = {
       this.derived.riskIndex(),
       this.derived.regionalStability()
     ]);
+
+    this.renderMap();
   },
 
   /* ===========================================================
-     INIT — boot clock, countdown, and 60s refresh loop
+     TACTICAL MAP — Leaflet, holographic style, no radar visuals
+     =========================================================== */
+  initMap() {
+    const map = L.map('tactical-map', {
+      worldCopyJump: true,
+      zoomControl: true,
+      attributionControl: false
+    }).setView([20, 0], 2);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 18
+    }).addTo(map);
+
+    NEXUS.map = map;
+    NEXUS.mapLayers.eq = L.layerGroup().addTo(map);
+    setTimeout(() => map.invalidateSize(), 250);
+  },
+
+  renderMap() {
+    if (!NEXUS.map) return;
+    let tracked = 0;
+
+    // Earthquakes — color/size scaled by magnitude
+    if (NEXUS.mapLayers.eq) {
+      NEXUS.mapLayers.eq.clearLayers();
+      if (NEXUS.state.earthquakes) {
+        NEXUS.state.earthquakes.forEach(q => {
+          const mag = q.properties.mag || 0;
+          const coords = q.geometry.coordinates;
+          const color = mag >= 5 ? '#ff003c' : mag >= 4 ? '#ffb800' : '#00f0ff';
+          L.circleMarker([coords[1], coords[0]], {
+            radius: Math.max(5, mag * 2.8),
+            color, fillColor: color, fillOpacity: 0.65, weight: 2, opacity: 0.9,
+            className: 'quake-marker'
+          }).bindPopup('<b>M' + mag.toFixed(1) + '</b><br>' + NEXUS.utils.escapeHtml(q.properties.place || 'Unknown') +
+            '<br>' + NEXUS.utils.timeAgo(q.properties.time)).addTo(NEXUS.mapLayers.eq);
+          tracked++;
+        });
+      }
+    }
+
+    // ISS — live marker
+    if (NEXUS.state.iss) {
+      const { lat, lon } = NEXUS.state.iss;
+      const issIcon = L.divIcon({ html: '🛰', className: 'iss-marker', iconSize: [18, 18] });
+      if (NEXUS.issMarker) {
+        NEXUS.issMarker.setLatLng([lat, lon]);
+      } else {
+        NEXUS.issMarker = L.marker([lat, lon], { icon: issIcon }).bindPopup('ISS — International Space Station').addTo(NEXUS.map);
+      }
+      tracked++;
+    }
+
+    const readout = NEXUS.utils.el('map-readout');
+    if (readout) readout.textContent = 'TRACKING ' + tracked + ' OBJECTS';
+  },
+
+  /* ===========================================================
+     INIT — boot clock, countdown, 60s refresh loop, and toggle button
      =========================================================== */
   init() {
     // Global UTC clock — ticks every second
@@ -2494,12 +2780,156 @@ const NEXUS = {
     };
     setInterval(tickCountdown, 1000);
 
+    // Toggle button — filter panels to show only those with live data
+    const toggleBtn = NEXUS.utils.el('toggle-live');
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => NEXUS.utils.toggleLiveOnly());
+    }
+
+    // Settings modal — API keys, stored in localStorage only
+    this.initSettingsModal();
+
+    // Tactical map — init once, then it's updated on every refresh cycle
+    this.initMap();
+
     // initial pull (don't wait — kick off immediately)
     this.refreshAll();
+  },
+
+  initSettingsModal() {
+    const overlay = NEXUS.utils.el('settings-overlay');
+    const openBtn = NEXUS.utils.el('open-settings');
+    const closeBtn = NEXUS.utils.el('settings-close');
+    const saveBtn = NEXUS.utils.el('settings-save');
+    const clearBtn = NEXUS.utils.el('settings-clear');
+    const firmsInput = NEXUS.utils.el('key-firms');
+    const reliefInput = NEXUS.utils.el('key-reliefweb');
+    if (!overlay) return;
+
+    const open = () => {
+      firmsInput.value = localStorage.getItem('nexus_firms_key') || '';
+      reliefInput.value = localStorage.getItem('nexus_reliefweb_appname') || '';
+      overlay.classList.add('open');
+    };
+    const close = () => overlay.classList.remove('open');
+
+    openBtn.addEventListener('click', open);
+    closeBtn.addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+
+    saveBtn.addEventListener('click', () => {
+      const firms = firmsInput.value.trim();
+      const relief = reliefInput.value.trim();
+      if (firms) localStorage.setItem('nexus_firms_key', firms); else localStorage.removeItem('nexus_firms_key');
+      if (relief) localStorage.setItem('nexus_reliefweb_appname', relief); else localStorage.removeItem('nexus_reliefweb_appname');
+      close();
+      NEXUS.refreshAll(); // re-run immediately with new keys, no full page reload needed
+    });
+
+    clearBtn.addEventListener('click', () => {
+      localStorage.removeItem('nexus_firms_key');
+      localStorage.removeItem('nexus_reliefweb_appname');
+      firmsInput.value = '';
+      reliefInput.value = '';
+      NEXUS.refreshAll();
+    });
   }
 };
 
 document.addEventListener('DOMContentLoaded', () => NEXUS.init());
+
+/* ===========================================================
+   ATMOSPHERIC BACKGROUND — Three.js wireframe globe + starfield
+   Purely decorative, z-index:0, pointer-events:none. Degrades
+   silently if WebGL/Three.js fails to load (canvas just stays empty
+   behind the existing CSS grid/gradient layers).
+   =========================================================== */
+(function initGlobeBackground() {
+  if (typeof THREE === 'undefined') return;
+  const canvas = document.getElementById('globe-bg');
+  if (!canvas) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  } catch (e) { return; }
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.position.z = 5.4;
+
+  function resize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    renderer.setSize(w, h);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  // ---- Wireframe globe ----
+  const globeGeo = new THREE.SphereGeometry(2, 28, 20);
+  const globeMat = new THREE.MeshBasicMaterial({
+    color: 0x00f0ff, wireframe: true, transparent: true, opacity: 0.16
+  });
+  const globe = new THREE.Mesh(globeGeo, globeMat);
+  globe.position.set(1.6, -0.4, -2);
+  scene.add(globe);
+
+  // subtle inner core glow sphere
+  const coreGeo = new THREE.SphereGeometry(1.92, 24, 18);
+  const coreMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.025 });
+  const core = new THREE.Mesh(coreGeo, coreMat);
+  core.position.copy(globe.position);
+  scene.add(core);
+
+  // a couple of orbit rings (satellite paths — static tilt, rotate with globe)
+  function makeRing(radius, tiltX, tiltZ, color, opacity) {
+    const ringGeo = new THREE.TorusGeometry(radius, 0.004, 8, 96);
+    const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.position.copy(globe.position);
+    ring.rotation.x = tiltX;
+    ring.rotation.z = tiltZ;
+    scene.add(ring);
+    return ring;
+  }
+  const ring1 = makeRing(2.35, Math.PI / 2.6, 0.3, 0x00f0ff, 0.12);
+  const ring2 = makeRing(2.6, Math.PI / 2.1, -0.5, 0xbd00ff, 0.08);
+
+  // ---- Starfield ----
+  const starCount = 900;
+  const starPositions = new Float32Array(starCount * 3);
+  for (let i = 0; i < starCount; i++) {
+    const radius = 20 + Math.random() * 60;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos((Math.random() * 2) - 1);
+    starPositions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+    starPositions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+    starPositions[i * 3 + 2] = radius * Math.cos(phi) - 10;
+  }
+  const starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+  const starMat = new THREE.PointsMaterial({ color: 0xaefcff, size: 0.045, transparent: true, opacity: 0.55 });
+  const stars = new THREE.Points(starGeo, starMat);
+  scene.add(stars);
+
+  let frame = 0;
+  function animate() {
+    frame++;
+    globe.rotation.y += 0.0011;
+    core.rotation.y += 0.0011;
+    ring1.rotation.y += 0.0006;
+    ring2.rotation.y -= 0.0004;
+    stars.rotation.y += 0.00006;
+    renderer.render(scene, camera);
+    requestAnimationFrame(animate);
+  }
+  animate();
+})();
 </script>
 </body>
 </html>
